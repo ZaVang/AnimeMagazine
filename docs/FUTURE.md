@@ -10,13 +10,14 @@
 评分：可视程度 5.5/10、美观程度 8.5/10、便利度 4/10。
 核心矛盾：平面页排版精良，但默认 3D 斜视取景牺牲了可读性，且关键交互（阅读缩放、相机）仅绑键盘，触屏几乎不可用。
 
-## Sprint 1 — 品牌一致性（P0，待办）
+## Sprint 1 — 品牌一致性（P0，已完成 e6d588f→）
 
-- [ ] `assets/image/cover.png` 是旧版 **SO-EN / 装苑 / MAY 2025 / VOL.72** 封面，
+- [x] `assets/image/cover.png` 是旧版 **SO-EN / 装苑 / MAY 2025 / VOL.72** 封面，
       与 HUD、网页标题、特集文案的 **ATELIER / アトリヱ / MAY 2026 / VOL.08** 身份自相矛盾。
-- [ ] 用 `assets/backup/cover-extra-2026.png`（正确的 ATELIER 2026 封面，主题与
+- [x] 用 `assets/backup/cover-extra-2026.png`（正确的 ATELIER 2026 封面，主题与
       「白と海軍紺の構造美 / THE ART OF RESTRAINT」一致）替换在用封面。
-- [ ] 同步核对封底 `back-cover.png` 是否需要替换为 2026 版本。
+- [x] 封底 `back-cover.png` 经核对已是 ATELIER 2026 版本（Vol.08 / atelier press /
+      NEXT ISSUE Vol.09 JULY 2026），无需替换。
 
 ## Sprint 2 — 触控可用性（P0/P1，待办）
 
