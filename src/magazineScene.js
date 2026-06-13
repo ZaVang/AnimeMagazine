@@ -348,6 +348,17 @@ export class MagazineScene {
     this.targetOpen = new THREE.Vector3(MAGAZINE_X, 0.07, -0.03);
     this.camera.position.copy(this.cameraStart);
     this.camera.lookAt(this.targetStart);
+
+    // Portrait framing: narrow viewports must dolly back and recenter on the
+    // magazine, otherwise the cover (and especially the landscape spread) spill
+    // past the screen edges. Tuned against a 375x812 phone (aspect ~0.46).
+    this.baseFov = this.camera.fov; // 34
+    this.portraitAspect = 0.92; // below this aspect, start adapting
+    this.portraitRange = 0.58; // aspect span over which the effect ramps to full
+    this.portraitFovGain = 24; // widen FOV on portrait (cheaper than distance)
+    this.portraitPullY = 0.3; // extra height (look down a touch more)
+    this.portraitPullZ = 1.3; // extra distance
+    this.portraitRecenter = 0.7; // how far the look slides toward magazine center
   }
 
   createPostProcessing() {
@@ -2646,6 +2657,7 @@ export class MagazineScene {
       const closed = this.applyResponsiveCamera(this.cameraClosed, this.responsiveCameraB);
       this.camera.position.copy(start).lerp(closed, intro);
       this.cameraTarget.copy(this.targetStart).lerp(this.targetClosed, intro);
+      this.applyResponsiveTarget(this.cameraTarget);
       this.camera.lookAt(this.cameraTarget);
 
       if (this.introProgress >= 1) this.introComplete = true;
@@ -2659,12 +2671,14 @@ export class MagazineScene {
           ? this.cameraClosedBack
           : this.cameraOpen;
     const desiredPosition = this.applyResponsiveCamera(basePosition, this.responsiveCameraDesired);
-    const desiredTarget = this.desiredTargetWork.copy(
-      this.state === "closed"
-        ? this.targetClosed
-        : this.state === "closedBack"
-          ? this.targetClosedBack
-          : this.targetOpen,
+    const desiredTarget = this.applyResponsiveTarget(
+      this.desiredTargetWork.copy(
+        this.state === "closed"
+          ? this.targetClosed
+          : this.state === "closedBack"
+            ? this.targetClosedBack
+            : this.targetOpen,
+      ),
     );
 
     this.parallax.lerp(this.parallaxTarget, Math.min(1, delta * 4));
@@ -2716,12 +2730,31 @@ export class MagazineScene {
     }
   }
 
+  portraitAmount() {
+    if (this.viewportAspect >= this.portraitAspect) return 0;
+    return THREE.MathUtils.clamp(
+      (this.portraitAspect - this.viewportAspect) / this.portraitRange,
+      0,
+      1,
+    );
+  }
+
   applyResponsiveCamera(base, target) {
     target.copy(base);
-    if (this.viewportAspect < 0.72) {
-      const amount = THREE.MathUtils.clamp((0.72 - this.viewportAspect) / 0.32, 0, 1);
-      target.y += amount * 0.48;
-      target.z += amount * 1.12;
+    const amount = this.portraitAmount();
+    if (amount > 0) {
+      target.y += amount * this.portraitPullY;
+      target.z += amount * this.portraitPullZ;
+    }
+    return target;
+  }
+
+  // Slide the look-at toward the magazine's centerline on portrait so the cover
+  // is framed symmetrically instead of biased off one edge.
+  applyResponsiveTarget(target) {
+    const amount = this.portraitAmount();
+    if (amount > 0) {
+      target.x = THREE.MathUtils.lerp(target.x, MAGAZINE_X, amount * this.portraitRecenter);
     }
     return target;
   }
@@ -3337,6 +3370,9 @@ export class MagazineScene {
     this.composer.setSize(width, height);
     this.camera.aspect = width / height;
     this.viewportAspect = this.camera.aspect;
+    // Widen the field of view on portrait so the magazine fits without having
+    // to dolly so far back that it reads as a tiny object on a vast floor.
+    this.camera.fov = this.baseFov + this.portraitAmount() * this.portraitFovGain;
     this.camera.updateProjectionMatrix();
     if (this.gallery) this.fitGallery();
   }
