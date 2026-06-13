@@ -1,0 +1,14 @@
+node_modules/
+dist/
+.env*
+*.local
+.claude/settings.local.json
+
+# scratch / audit artifacts
+tmp/
+
+# heavy working + backup assets not used at runtime
+# (runtime loads from public/pbr, assets/image, assets/image-packs, assets/video)
+assets/backup/
+assets/pbr/
+assets/reference/

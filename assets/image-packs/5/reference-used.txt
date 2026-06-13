@@ -1,0 +1,5 @@
+Reference image:
+assets/reference/reference-character-front.png
+
+Usage:
+Use this image as the shared character proportion, face scale, hair volume, shoulder width, arm length, leg length, flat-shoe scale, and natural anime silhouette reference. Keep each page's own outfit and scene from its source prompt.

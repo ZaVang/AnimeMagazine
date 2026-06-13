@@ -1,0 +1,80 @@
+{
+  "pack": "D:\\work\\AnimeMagazine\\assets\\image-packs\\4",
+  "created_or_updated": "2026-06-12T03:52:47.085844+00:00",
+  "source": "D:\\work\\AnimeMagazine\\assets\\image-packs\\4\\source.md",
+  "prompts": {
+    "action-sheet": "D:\\work\\AnimeMagazine\\assets\\image-packs\\4\\prompts\\action-sheet.md",
+    "background-only": "D:\\work\\AnimeMagazine\\assets\\image-packs\\4\\prompts\\background-only.md",
+    "character-chromakey": "D:\\work\\AnimeMagazine\\assets\\image-packs\\4\\prompts\\character-chromakey.md",
+    "expression-sheet": "D:\\work\\AnimeMagazine\\assets\\image-packs\\4\\prompts\\expression-sheet.md",
+    "main-visual": "D:\\work\\AnimeMagazine\\assets\\image-packs\\4\\prompts\\main-visual.md"
+  },
+  "images": {
+    "main-visual.png": {
+      "path": "D:\\work\\AnimeMagazine\\assets\\image-packs\\4\\images\\main-visual.png",
+      "exists": true,
+      "width": 941,
+      "height": 1672,
+      "mode": "RGB",
+      "bytes": 2369707,
+      "modified": "2026-06-11T12:11:50.158333+00:00"
+    },
+    "character-chromakey.png": {
+      "path": "D:\\work\\AnimeMagazine\\assets\\image-packs\\4\\images\\character-chromakey.png",
+      "exists": true,
+      "width": 941,
+      "height": 1672,
+      "mode": "RGB",
+      "bytes": 1324878,
+      "modified": "2026-06-11T12:18:39.693585+00:00"
+    },
+    "character-transparent.png": {
+      "path": "D:\\work\\AnimeMagazine\\assets\\image-packs\\4\\images\\character-transparent.png",
+      "exists": true,
+      "width": 941,
+      "height": 1672,
+      "mode": "RGBA",
+      "bytes": 693154,
+      "modified": "2026-06-11T12:18:58.490657+00:00",
+      "alpha_bbox": [
+        280,
+        96,
+        722,
+        1566
+      ],
+      "corner_alpha": [
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    "background-only.png": {
+      "path": "D:\\work\\AnimeMagazine\\assets\\image-packs\\4\\images\\background-only.png",
+      "exists": true,
+      "width": 941,
+      "height": 1672,
+      "mode": "RGB",
+      "bytes": 2448473,
+      "modified": "2026-06-11T12:22:23.843503+00:00"
+    },
+    "expression-sheet.png": {
+      "path": "D:\\work\\AnimeMagazine\\assets\\image-packs\\4\\images\\expression-sheet.png",
+      "exists": true,
+      "width": 1536,
+      "height": 1024,
+      "mode": "RGB",
+      "bytes": 2286221,
+      "modified": "2026-06-11T13:39:34.595041+00:00"
+    },
+    "action-sheet.png": {
+      "path": "D:\\work\\AnimeMagazine\\assets\\image-packs\\4\\images\\action-sheet.png",
+      "exists": true,
+      "width": 1672,
+      "height": 941,
+      "mode": "RGB",
+      "bytes": 1901970,
+      "modified": "2026-06-11T13:44:12.951562+00:00"
+    }
+  }
+}

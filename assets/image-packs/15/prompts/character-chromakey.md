@@ -1,0 +1,67 @@
+# Character Chroma Key
+
+Generate only the character as a full-body standing sprite or clean pose subject.
+
+The character must be on a perfectly flat solid #00ff00 chroma-key background. The background must be one uniform green color with no floor plane, cast shadow, contact shadow, gradient, texture, reflections, text, watermark, or decorations. Keep the full body visible from head to shoes with generous padding. Do not use #00ff00 anywhere in the character, outfit, eyes, accessories, or hair.
+
+Common constraints:
+- no real brand logos
+- no watermark
+- no unreadable large text blocks
+- no random numbers, page numbers, issue numbers, prices, years, dates, rankings, serial numbers, barcode numbers, or meaningless numeric text
+- keep the same character identity, outfit logic, color palette, and art direction from the source prompt
+
+
+## Source prompt
+
+## 1. 图像类型与角色锁定
+
+请创作一张复古未来感时尚杂志内页动漫插画，主角是《我的青春恋爱物语果然有问题》中的雪之下雪乃。
+
+这张图要像真实高级时装杂志中的 retro futurism editorial 页面，而不是赛博朋克角色海报。画面需要有未来材质、复古色彩、克制版式和高级印刷质感。
+
+## 2. 人物特征与气质表情
+
+她有着黑色长直发、白皙肤色、精致清秀的五官、蓝灰色眼睛，整体气质要体现出冷静、敏锐、优雅、理性、克制和强烈存在感。
+
+表情可以平静、淡淡微笑或略带审视感，像站在未来感展厅中进行时装拍摄。人物必须保持雪之下雪乃的辨识度，不要改变发色、眼色、脸型、发型长度或整体角色身份。
+
+## 3. 杂志风格参考与主题方向
+
+整体风格参考 Dazed、Numéro Tokyo 和高级实验时装 editorial 的视觉气质，强调复古未来、金属材质、几何构图、冷静色彩和精致 mode 感。
+
+本页主题是“银色走廊与理性未来”。背景可以是圆角金属墙面、磨砂玻璃、极简展厅、复古未来家具、柔和灯带和几何反光。
+
+## 4. 服装造型与鞋履禁忌
+
+服装采用克制的未来感造型：银灰短外套、黑色高领针织、深色高腰长裤或长款铅笔裙、金属扣腰带、透明感但不暴露的外层、几何耳饰。
+
+整体搭配要有未来感但保持端庄，不要夸张机甲化，不要性感化。鞋子必须是平底短靴、平底乐福鞋、平底牛津鞋或低矮方跟鞋。禁止高跟鞋、细跟鞋、尖头高跟鞋、恨天高、夸张厚底鞋和过度性感鞋履。
+
+## 5. 色彩、材质与季节感
+
+色彩搭配建议以银灰、黑色、冷白、深紫灰和少量电光青为主。电光青只能作为细小灯带或排版点缀，避免变成霓虹赛博朋克。
+
+材质需要清楚：金属涂层、磨砂玻璃、细针织、哑光皮革、技术面料、柔和灯带和印刷纸颗粒。整体要冷静、实验、精致。
+
+## 6. 构图、背景与空间
+
+画面采用竖版 9:16 或宽高比约 0.56 的杂志页面构图，适合 1200x2135 或更高分辨率。人物可以七分身或全身站在银色走廊中，几何背景形成视觉引导线。
+
+背景要简洁、有纵深、有未来材质细节，但不要复杂设备和大量屏幕。画面需要为标题、概念说明和图注保留空间。
+
+## 7. 光线、姿态与镜头质感
+
+光线采用柔和冷调棚拍光和少量环境灯反射，强调金属表面、发丝、面部轮廓和衣物结构。
+
+人物姿态要冷静、端正、略有距离感，可以正面站立、侧身回眸或轻扶腰带。不要夸张科幻动作，不要战斗姿态，不要性感化。
+
+## 8. 杂志版式、文字限制与最终效果
+
+版式上加入实验时尚杂志内页元素：概念标题、细线网格、栏目标签、少量英文短句和日文短句。可以使用虚构文字，例如“FUTURE RESTRAINT”“SILVER CORRIDOR”“YUKINO YUKINOSHITA”“未来の静けさ”。
+
+注意这是虚构时尚杂志，不要使用真实杂志 logo，不要真实品牌标志，不要水印，不要乱码，不要难以辨认的大段文字。整体效果要突出：雪之下雪乃、复古未来、银灰黑配色、电光青点缀、平底鞋、无高跟鞋、真实杂志内页质感。
+
+返工硬约束：不要出现任何随机数字、页码、期号、价格、年份、月份、日期、排名、序号、列表编号、条形码数字或无意义数字。侧边信息栏需要秩序感时，用短横线、色块、图标、无编号小标题和非数字项目符号替代。不要出现 01、02、03、Vol、No、2025、2026、980 yen 等数字文本。
+
+镜头角度与姿势变化：人物在银色走廊中采用三分之二侧身站姿，脸从肩线方向回望，手轻扶腰带或外套边缘。

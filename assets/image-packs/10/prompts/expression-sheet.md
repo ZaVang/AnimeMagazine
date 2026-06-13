@@ -1,0 +1,67 @@
+# Expression Difference Sheet
+
+Generate a clean expression difference sheet for the same character and art style.
+
+Use a simple grid layout with separated parts. Include eyes open, eyes half, eyes closed, mouth neutral, mouth smile, and mouth open. Keep the same face style, linework, lighting, and scale. Use a plain background that is easy to crop. Labels are optional; if labels appear, use short words and no numbers.
+
+Common constraints:
+- no real brand logos
+- no watermark
+- no unreadable large text blocks
+- no random numbers, page numbers, issue numbers, prices, years, dates, rankings, serial numbers, barcode numbers, or meaningless numeric text
+- keep the same character identity, outfit logic, color palette, and art direction from the source prompt
+
+
+## Source prompt
+
+## 1. 图像类型与角色锁定
+
+请创作一张建筑与时尚结合的高级杂志内页动漫插画，主角是《我的青春恋爱物语果然有问题》中的雪之下雪乃。
+
+这张图要像真实设计生活杂志或建筑时尚专题中的页面，而不是普通建筑背景角色图。画面需要把人物服装、建筑线条、版式留白和印刷质感统一起来。
+
+## 2. 人物特征与气质表情
+
+她有着黑色长直发、白皙肤色、精致清秀的五官、蓝灰色眼睛，整体气质要体现出理性、沉静、清冷、精确、优雅而有判断力。
+
+表情自然平静，可以略带淡淡微笑，像在美术馆或现代建筑空间里接受采访。人物必须保持雪之下雪乃的辨识度，不要改变发色、眼色、脸型、发型长度或整体角色身份。
+
+## 3. 杂志风格参考与主题方向
+
+整体风格参考 Casa BRUTUS、T Magazine 和建筑时尚 editorial 的视觉气质，强调现代建筑、空间线条、设计感、理性美学和安静的都市品味。
+
+本页主题是“建筑线条与冷静穿搭”。画面可以围绕美术馆、极简水泥墙、玻璃走廊、楼梯、白色展厅、几何阴影和大型窗框展开。
+
+## 4. 服装造型与鞋履禁忌
+
+服装采用建筑感都市造型：长款无领大衣、结构感衬衫、宽松直筒长裤、窄腰带、几何银饰、硬挺小包或文件夹式手拿包。
+
+整体搭配要体现直线、轮廓和克制的力量，像建筑空间里的高级成衣。鞋子必须是平底牛津鞋、平底乐福鞋、低矮方跟短靴或简洁平底皮鞋。禁止高跟鞋、细跟鞋、尖头高跟鞋、恨天高、夸张厚底鞋和过度性感鞋履。
+
+## 5. 色彩、材质与季节感
+
+色彩搭配建议以水泥灰、象牙白、深墨黑、冷银色和少量赤陶色为主。赤陶色只作为建筑或小配饰点缀，让画面避免过分单调。
+
+材质需要清楚：混凝土、玻璃、磨砂金属、挺括棉布、羊毛大衣、哑光皮革和纸张颗粒。整体要干净、冷静、理性，但不能失去人的温度。
+
+## 6. 构图、背景与空间
+
+画面采用竖版 9:16 或宽高比约 0.56 的杂志页面构图，适合 1200x2135 或更高分辨率。人物可以全身站在楼梯、展墙或玻璃走廊旁，建筑线条作为天然排版框架。
+
+背景是现代美术馆或极简建筑空间，有清晰的垂直线、水平线和透视关系。画面需要预留标题、建筑说明和图注，不要让空间透视压迫人物。
+
+## 7. 光线、姿态与镜头质感
+
+光线采用建筑空间中的自然天光和柔和反射光，强调墙面阴影、玻璃亮面、服装轮廓和人物脸部的冷静质感。
+
+人物姿态要端正、聪明、安静，可以轻靠展墙、站在窗框旁、手拿一本设计书、侧脸看向展墙或窗外，不必正对镜头。不要夸张 pose，不要过度动态，不要性感化。
+
+## 8. 杂志版式、文字限制与最终效果
+
+版式上加入设计杂志内页元素：建筑专题标题、空间说明、细线网格、图注块、少量英文与日文短句。可以使用虚构文字，例如“ARCHITECTURE OF CALM”“LINES AND SILENCE”“YUKINO YUKINOSHITA”“構造と静けさ”。
+
+注意这是虚构时尚杂志，不要使用真实杂志 logo，不要真实品牌标志，不要水印，不要乱码，不要难以辨认的大段文字。整体效果要突出：雪之下雪乃、现代建筑、理性时装、灰白赤陶配色、平底鞋、无高跟鞋、真实杂志内页质感。
+
+返工硬约束：不要出现任何随机数字、页码、期号、价格、年份、月份、日期、排名、序号、列表编号、条形码数字或无意义数字。侧边信息栏需要秩序感时，用短横线、色块、图标、无编号小标题和非数字项目符号替代。不要出现 01、02、03、Vol、No、2025、2026、980 yen 等数字文本。
+
+镜头角度、姿势与肢体自然度：人物站在楼梯平台或玻璃走廊转角处，身体顺着建筑透视线轻轻侧转，像刚停步阅读空间导视。一只手抱着无文字文件夹贴近身体，另一只手自然触碰栏杆或放在大衣口袋里。脸可以保持冷静侧脸，视线看向远处展墙或窗外，不必正对镜头。身体重心落在一条腿上，另一条腿轻轻后收，肩线与骨盆保持自然角度，避免僵硬正面站姿、手臂悬空和腿部透视错误。
