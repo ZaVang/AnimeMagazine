@@ -3058,7 +3058,11 @@ export class MagazineScene {
       if (this.gallery) this.closeGallery();
       return;
     }
-    if (this.gallery) return;
+    if (this.gallery) {
+      if (event.code === "ArrowRight" || event.code === "ArrowDown") this.galleryGo(1);
+      else if (event.code === "ArrowLeft" || event.code === "ArrowUp") this.galleryGo(-1);
+      return;
+    }
 
     if (RIG_KEYS.includes(event.code)) {
       this.keys.add(event.code);
@@ -3109,30 +3113,36 @@ export class MagazineScene {
 
   // --- Gallery (鑑賞モード) ---------------------------------------------------
 
-  galleryPageInfo() {
-    if (this.state === "closed") {
-      return { src: coverFrontUrl, label: `<span class="jp">表紙</span>` };
+  // The whole issue in reading order, so the overlay can page through it
+  // linearly: cover, every interior page, the colophon, then the back cover.
+  // Page URLs are eager, so all pages are addressable even before their 3D
+  // textures have streamed in.
+  galleryEntries() {
+    const jp = (text) => `<span class="jp">${text}</span>`;
+    const entries = [{ key: "cover", src: coverFrontUrl, label: jp("表紙") }];
+    imagePageUrls.forEach((url, page) => {
+      if (!url) return;
+      entries.push({ key: `p${page}`, page, src: url, label: `P.${String(page + 2).padStart(2, "0")}` });
+    });
+    if (this.colophonCanvas) {
+      entries.push({ key: "colophon", src: this.colophonCanvas.toDataURL("image/png"), label: jp("奥付") });
     }
-    if (this.state === "closedBack") {
-      return { src: backCoverUrl, label: `<span class="jp">裏表紙</span>` };
-    }
-    const side =
-      this.galleryShowSide === "left" || this.galleryShowSide === "right"
-        ? this.galleryShowSide
-        : this.pointerSide === "left"
-          ? "left"
-          : "right";
-    const pageIndex =
+    entries.push({ key: "back", src: backCoverUrl, label: jp("裏表紙") });
+    return entries;
+  }
+
+  // Where to open the overlay: the page you are currently looking at.
+  galleryStartIndex(entries) {
+    if (this.state === "closedBack") return entries.length - 1;
+    if (this.state !== "open") return 0; // closed -> cover
+    const side = this.pointerSide === "left" ? "left" : "right";
+    let page =
       side === "left"
         ? this.spreadLeftPage(this.spreadIndex)
         : this.spreadRightPage(this.spreadIndex);
-    if (pageIndex === null) {
-      if (!this.colophonCanvas) return null;
-      return { src: this.colophonCanvas.toDataURL("image/png"), label: `<span class="jp">奥付</span>` };
-    }
-    if (!this.pageMaterials[pageIndex]) return null;
-    const num = String(pageIndex + 2).padStart(2, "0");
-    return { src: imagePageUrls[pageIndex], label: `P.${num}` };
+    if (page === null) page = this.spreadLeftPage(this.spreadIndex);
+    const found = entries.findIndex((e) => e.page === page);
+    return found >= 0 ? found : 0;
   }
 
   toggleGallery() {
@@ -3142,27 +3152,26 @@ export class MagazineScene {
     }
     if (this.show) return;
     if (this.state !== "open" && this.state !== "closed" && this.state !== "closedBack") return;
-    // Which page the overlay shows. On desktop this follows the hovered side;
-    // on touch (no hover) it defaults to the right page, and the ‹ › controls
-    // let the reader swap to the other page of the spread.
-    this.galleryShowSide =
-      this.state === "open" ? (this.pointerSide === "left" ? "left" : "right") : null;
-    const info = this.galleryPageInfo();
+    // Build the whole-issue page list once and open on the page in view; the
+    // ‹ › controls then walk the entire magazine, not just the current spread.
+    const entries = this.galleryEntries();
+    if (!entries.length) return;
+    const startIndex = this.galleryStartIndex(entries);
+    const info = entries[startIndex];
     if (!info) return;
     if (this.tour) this.endTour();
     this.clearPeel();
     this.keys.clear();
 
-    const canSwap = this.state === "open";
     const el = document.createElement("div");
     el.className = "gallery";
     el.innerHTML = `
       <img class="gallery-img" alt="誌面" draggable="false" />
       <div class="gallery-label">${info.label}</div>
       <button class="gallery-close" type="button" aria-label="戻る">✕</button>
-      <button class="gallery-nav prev" type="button" aria-label="前のページ"${canSwap ? "" : " hidden"}>‹</button>
-      <button class="gallery-nav next" type="button" aria-label="次のページ"${canSwap ? "" : " hidden"}>›</button>
-      <div class="gallery-hint">ドラッグ・移動　ピンチ / ホイール・拡大　✕ / SPACE・戻る</div>
+      <button class="gallery-nav prev" type="button" aria-label="前のページ">‹</button>
+      <button class="gallery-nav next" type="button" aria-label="次のページ">›</button>
+      <div class="gallery-hint">‹ › ページ送り　ドラッグ・移動　ピンチ / ホイール・拡大　✕ / SPACE・戻る</div>
     `;
     this.container.appendChild(el);
     const img = el.querySelector(".gallery-img");
@@ -3170,6 +3179,8 @@ export class MagazineScene {
     const g = {
       el,
       img,
+      entries,
+      index: startIndex,
       scale: 1,
       fit: 1,
       x: 0,
@@ -3284,19 +3295,16 @@ export class MagazineScene {
       event.stopPropagation();
       this.closeGallery();
     });
-    if (canSwap) {
-      const swapTo = (side) => (event) => {
+    for (const [sel, delta] of [[".gallery-nav.prev", -1], [".gallery-nav.next", 1]]) {
+      const btn = el.querySelector(sel);
+      btn.addEventListener("pointerdown", swallow);
+      btn.addEventListener("dblclick", swallow); // don't trigger the fit-reset
+      btn.addEventListener("click", (event) => {
         event.stopPropagation();
-        if (this.galleryShowSide === side) return;
-        this.galleryShowSide = side;
-        this.reloadGalleryImage();
-      };
-      for (const [sel, side] of [[".gallery-nav.prev", "left"], [".gallery-nav.next", "right"]]) {
-        const btn = el.querySelector(sel);
-        btn.addEventListener("pointerdown", swallow);
-        btn.addEventListener("click", swapTo(side));
-      }
+        this.galleryGo(delta);
+      });
     }
+    this.updateGalleryNav();
 
     img.onload = () => {
       if (this.gallery !== g) return;
@@ -3348,12 +3356,31 @@ export class MagazineScene {
     window.setTimeout(() => g.el.remove(), 380);
   }
 
-  // Swap the gallery to the other page of the spread (‹ › controls) without
-  // tearing down the overlay; the existing img.onload re-fits the new page.
-  reloadGalleryImage() {
+  // Step through the issue (‹ › buttons or arrow keys) without tearing down the
+  // overlay; the existing img.onload re-fits each new page.
+  galleryGo(delta) {
+    const g = this.gallery;
+    if (!g || !g.entries) return;
+    const next = THREE.MathUtils.clamp(g.index + delta, 0, g.entries.length - 1);
+    if (next === g.index) return;
+    g.index = next;
+    this.reloadGalleryImage();
+    this.updateGalleryNav();
+  }
+
+  updateGalleryNav() {
     const g = this.gallery;
     if (!g) return;
-    const info = this.galleryPageInfo();
+    const prev = g.el.querySelector(".gallery-nav.prev");
+    const next = g.el.querySelector(".gallery-nav.next");
+    if (prev) prev.hidden = g.index <= 0;
+    if (next) next.hidden = g.index >= g.entries.length - 1;
+  }
+
+  reloadGalleryImage() {
+    const g = this.gallery;
+    if (!g || !g.entries) return;
+    const info = g.entries[g.index];
     if (!info) return;
     const label = g.el.querySelector(".gallery-label");
     if (label) label.innerHTML = info.label;
