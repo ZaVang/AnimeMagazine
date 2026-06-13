@@ -355,6 +355,13 @@ export class MagazineScene {
     // Portrait framing: narrow viewports must dolly back and recenter on the
     // magazine, otherwise the cover (and especially the landscape spread) spill
     // past the screen edges. Tuned against a 375x812 phone (aspect ~0.46).
+    //
+    // Design note (P2-B): we deliberately frame the *whole* spread on portrait
+    // rather than reframing to a single page. A single-page 3D reframe would
+    // fight the "magazine lying on a table" identity and the page-turn
+    // animation, and it would duplicate the 鑑賞 reading overlay, which already
+    // gives device-neutral, zoomable, page-at-a-time reading (see toggleGallery
+    // / galleryEntries). Whole-spread-in-frame + 鑑賞 is the reading path.
     this.baseFov = this.camera.fov; // 34
     this.portraitAspect = 0.92; // below this aspect, start adapting
     this.portraitRange = 0.58; // aspect span over which the effect ramps to full
