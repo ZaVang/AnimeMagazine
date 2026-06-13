@@ -19,12 +19,18 @@
 - [x] 封底 `back-cover.png` 经核对已是 ATELIER 2026 版本（Vol.08 / atelier press /
       NEXT ISSUE Vol.09 JULY 2026），无需替换。
 
-## Sprint 2 — 触控可用性（P0/P1，待办）
+## Sprint 2 — 触控可用性（P0/P1，已完成）
 
-- [ ] 阅读/缩放模式（`toggleGallery` 鑑賞モード）此前仅绑 Space 键，触屏无法进入，
-      导致移动端根本读不了页面。新增触控入口：双击页面进入鑑賞 +（可选）可点击的提示。
-- [ ] 相机 WASD/QE、复位 R、翻姿势 F、解说 C 均为键盘专属。`pointer: coarse` 时
-      隐藏键盘提示行，改显触屏适配提示，避免无用且换行铺满底部的快捷键文本。
+- [x] 新增可点击的「鑑賞モード」HUD 按钮（`.hud-read`，pointer-events:auto），触屏与鼠标
+      都能进入阅读/缩放模式（此前仅 Space 键，触屏无法进入）。
+- [x] 鑑賞 overlay 内补齐触控闭环：右上「✕」关闭按钮、双指捏合缩放（多指 pointer 追踪）、
+      左右「‹ ›」切换跨页左右两页（`galleryShowSide` + `reloadGalleryImage`）。
+      此前 overlay 仅支持滚轮缩放 + Space/Esc 退出，触屏会被困住。
+- [x] `pointer: coarse` 时隐藏键盘提示 `.hud-keys`，改显触屏提示 `.hud-touch`
+      （ドラッグ・めくる / タップ・立たせる），避免无用且换行铺满底部的快捷键文本。
+- [x] 已验证：入口/关闭/翻页/捏合缩放均生效；移动端 375px 下控件全部在视口内且互不重叠。
+
+> 后续（P2）：鑑賞 overlay 的左右翻页目前限定在当前跨页内；可扩展为整本顺序浏览。
 
 ## Sprint 3 — HUD 可读性（P1，待办）
 

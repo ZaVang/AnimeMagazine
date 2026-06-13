@@ -176,6 +176,57 @@ body {
   text-align: right;
 }
 
+/* Touch-only hint, sharing the keyboard hint's corner. Keyboard shortcuts are
+   useless on a touch device and previously wrapped to three lines there. */
+.hud-touch {
+  position: absolute;
+  right: max(30px, env(safe-area-inset-right));
+  bottom: max(24px, env(safe-area-inset-bottom));
+  font-size: 10px;
+  letter-spacing: 0.18em;
+  color: var(--paper-faint);
+  text-align: right;
+  display: none;
+}
+
+@media (pointer: coarse) {
+  .hud-keys { display: none; }
+  .hud-touch { display: block; }
+}
+
+/* Reading-mode entry button: the only touch path into 鑑賞 (Space-only before). */
+.hud-read {
+  margin-top: 13px;
+  pointer-events: auto;
+  -webkit-appearance: none;
+  appearance: none;
+  border: 1px solid var(--hairline);
+  background: rgba(255, 248, 238, 0.05);
+  color: var(--paper);
+  font-family: var(--font-jp);
+  font-size: 11px;
+  letter-spacing: 0.26em;
+  text-indent: 0.26em;
+  padding: 7px 17px;
+  border-radius: 999px;
+  cursor: pointer;
+  transition:
+    background 0.25s var(--ease-out),
+    border-color 0.25s var(--ease-out),
+    opacity 0.4s var(--ease-out);
+}
+
+.hud-read:hover {
+  background: rgba(255, 248, 238, 0.11);
+  border-color: var(--paper-dim);
+}
+
+.magazine-stage.in-gallery .hud-read,
+.magazine-stage.in-show .hud-read {
+  opacity: 0;
+  pointer-events: none;
+}
+
 .hud.is-on .hud-item:nth-child(4) { transition-delay: 0.46s; }
 
 /* ---- Loader ----------------------------------------------------------- */
@@ -399,6 +450,61 @@ body {
   color: var(--paper-dim);
   pointer-events: none;
 }
+
+/* Gallery controls: touch needs an on-screen close (Space/Esc only before) and
+   page swap; these also help mouse users. */
+.gallery-close,
+.gallery-nav {
+  position: absolute;
+  z-index: 6;
+  pointer-events: auto;
+  -webkit-appearance: none;
+  appearance: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--hairline);
+  background: rgba(10, 8, 7, 0.55);
+  color: var(--paper);
+  font-family: var(--font-jp);
+  line-height: 1;
+  cursor: pointer;
+  -webkit-backdrop-filter: blur(4px);
+  backdrop-filter: blur(4px);
+  transition:
+    background 0.2s var(--ease-out),
+    border-color 0.2s var(--ease-out),
+    opacity 0.2s var(--ease-out);
+}
+
+.gallery-close:hover,
+.gallery-nav:hover {
+  background: rgba(10, 8, 7, 0.82);
+  border-color: var(--paper-dim);
+}
+
+.gallery-close {
+  top: max(20px, env(safe-area-inset-top));
+  right: max(20px, env(safe-area-inset-right));
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  font-size: 14px;
+}
+
+.gallery-nav {
+  top: 50%;
+  transform: translateY(-50%);
+  width: 42px;
+  height: 62px;
+  border-radius: 9px;
+  font-size: 24px;
+  padding-bottom: 3px;
+}
+
+.gallery-nav.prev { left: max(14px, env(safe-area-inset-left)); }
+.gallery-nav.next { right: max(14px, env(safe-area-inset-right)); }
+.gallery-nav[hidden] { display: none; }
 
 .magazine-stage.in-gallery .cursor-dot {
   opacity: 0;

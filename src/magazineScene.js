@@ -2783,8 +2783,10 @@ export class MagazineScene {
         <div class="hud-page"><span class="jp">表紙</span></div>
         <div class="hud-rule"></div>
         <div class="hud-hint">クリックして表紙をひらく</div>
+        <button class="hud-read" type="button" aria-label="誌面を拡大して読む">鑑賞モード</button>
       </div>
       <div class="hud-keys hud-item">WASD・視点　QE・回転　R・リセット　F・ポーズ　C・解説　SPACE・鑑賞</div>
+      <div class="hud-touch hud-item">ドラッグ・めくる　タップ・立たせる</div>
       <div class="hud-caption">
         <div class="cap-ja"></div>
         <div class="cap-zh"></div>
@@ -2794,6 +2796,18 @@ export class MagazineScene {
     this.hudPage = this.hud.querySelector(".hud-page");
     this.hudHint = this.hud.querySelector(".hud-hint");
     this.hudCaption = this.hud.querySelector(".hud-caption");
+
+    // Tappable entry into the reading (鑑賞) overlay so touch devices, which
+    // have no Space key, can still zoom a page. stopPropagation keeps the tap
+    // from also reaching the canvas raycast (which would open/turn the page).
+    this.hudRead = this.hud.querySelector(".hud-read");
+    if (this.hudRead) {
+      this.hudRead.addEventListener("pointerdown", (event) => event.stopPropagation());
+      this.hudRead.addEventListener("click", (event) => {
+        event.stopPropagation();
+        this.toggleGallery();
+      });
+    }
 
     this.cursorDot = document.createElement("div");
     this.cursorDot.className = "cursor-dot";
@@ -3069,7 +3083,12 @@ export class MagazineScene {
     if (this.state === "closedBack") {
       return { src: backCoverUrl, label: `<span class="jp">裏表紙</span>` };
     }
-    const side = this.pointerSide === "left" ? "left" : "right";
+    const side =
+      this.galleryShowSide === "left" || this.galleryShowSide === "right"
+        ? this.galleryShowSide
+        : this.pointerSide === "left"
+          ? "left"
+          : "right";
     const pageIndex =
       side === "left"
         ? this.spreadLeftPage(this.spreadIndex)
@@ -3090,18 +3109,27 @@ export class MagazineScene {
     }
     if (this.show) return;
     if (this.state !== "open" && this.state !== "closed" && this.state !== "closedBack") return;
+    // Which page the overlay shows. On desktop this follows the hovered side;
+    // on touch (no hover) it defaults to the right page, and the ‹ › controls
+    // let the reader swap to the other page of the spread.
+    this.galleryShowSide =
+      this.state === "open" ? (this.pointerSide === "left" ? "left" : "right") : null;
     const info = this.galleryPageInfo();
     if (!info) return;
     if (this.tour) this.endTour();
     this.clearPeel();
     this.keys.clear();
 
+    const canSwap = this.state === "open";
     const el = document.createElement("div");
     el.className = "gallery";
     el.innerHTML = `
       <img class="gallery-img" alt="誌面" draggable="false" />
       <div class="gallery-label">${info.label}</div>
-      <div class="gallery-hint">ドラッグ・移動　ホイール・拡大　SPACE・戻る</div>
+      <button class="gallery-close" type="button" aria-label="戻る">✕</button>
+      <button class="gallery-nav prev" type="button" aria-label="前のページ"${canSwap ? "" : " hidden"}>‹</button>
+      <button class="gallery-nav next" type="button" aria-label="次のページ"${canSwap ? "" : " hidden"}>›</button>
+      <div class="gallery-hint">ドラッグ・移動　ピンチ / ホイール・拡大　✕ / SPACE・戻る</div>
     `;
     this.container.appendChild(el);
     const img = el.querySelector(".gallery-img");
@@ -3119,29 +3147,75 @@ export class MagazineScene {
     };
     this.gallery = g;
 
+    g.pointers = new Map();
+    g.pinch = null;
+    const twoPoints = () => [...g.pointers.values()];
+    const pinchDist = () => {
+      const [a, b] = twoPoints();
+      return Math.hypot(a.x - b.x, a.y - b.y);
+    };
+    const pinchMid = () => {
+      const [a, b] = twoPoints();
+      return { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+    };
+
     g.onPointerDown = (event) => {
-      g.drag = {
-        id: event.pointerId,
-        startX: event.clientX,
-        startY: event.clientY,
-        baseX: g.x,
-        baseY: g.y,
-      };
-      el.classList.add("is-dragging");
+      g.pointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
       try {
         el.setPointerCapture(event.pointerId);
       } catch {
         /* best-effort */
       }
+      if (g.pointers.size >= 2) {
+        // second finger down: start a pinch and stop any single-finger pan
+        g.drag = null;
+        el.classList.remove("is-dragging");
+        g.pinch = { dist: pinchDist(), scale: g.scale, mid: pinchMid(), x: g.x, y: g.y };
+      } else {
+        g.drag = { id: event.pointerId, startX: event.clientX, startY: event.clientY, baseX: g.x, baseY: g.y };
+        el.classList.add("is-dragging");
+      }
     };
     g.onPointerMove = (event) => {
-      if (!g.drag || event.pointerId !== g.drag.id) return;
-      g.x = g.drag.baseX + (event.clientX - g.drag.startX);
-      g.y = g.drag.baseY + (event.clientY - g.drag.startY);
-      this.applyGalleryTransform();
+      if (!g.pointers.has(event.pointerId)) return;
+      g.pointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
+      if (g.pinch && g.pointers.size >= 2) {
+        const dist = pinchDist();
+        if (g.pinch.dist > 0) {
+          const next = THREE.MathUtils.clamp(
+            g.pinch.scale * (dist / g.pinch.dist),
+            g.fit * 0.6,
+            g.fit * 6,
+          );
+          const ratio = next / g.pinch.scale;
+          const m = g.pinch.mid;
+          g.x = m.x - (m.x - g.pinch.x) * ratio;
+          g.y = m.y - (m.y - g.pinch.y) * ratio;
+          g.scale = next;
+          this.applyGalleryTransform();
+        }
+        return;
+      }
+      if (g.drag && event.pointerId === g.drag.id) {
+        g.x = g.drag.baseX + (event.clientX - g.drag.startX);
+        g.y = g.drag.baseY + (event.clientY - g.drag.startY);
+        this.applyGalleryTransform();
+      }
     };
     g.onPointerUp = (event) => {
-      if (g.drag && event.pointerId === g.drag.id) {
+      g.pointers.delete(event.pointerId);
+      try {
+        el.releasePointerCapture(event.pointerId);
+      } catch {
+        /* already released */
+      }
+      if (g.pointers.size < 2) g.pinch = null;
+      if (g.pointers.size === 1) {
+        // one finger remains: hand panning back to it from its current spot
+        const [id, p] = [...g.pointers.entries()][0];
+        g.drag = { id, startX: p.x, startY: p.y, baseX: g.x, baseY: g.y };
+        el.classList.add("is-dragging");
+      } else if (g.pointers.size === 0) {
         g.drag = null;
         el.classList.remove("is-dragging");
       }
@@ -3167,6 +3241,29 @@ export class MagazineScene {
     el.addEventListener("pointercancel", g.onPointerUp);
     el.addEventListener("wheel", g.onWheel, { passive: false });
     el.addEventListener("dblclick", g.onDblClick);
+
+    // Overlay controls. stopPropagation on pointerdown keeps a button tap from
+    // starting a pan on the gallery surface underneath it.
+    const swallow = (event) => event.stopPropagation();
+    const closeBtn = el.querySelector(".gallery-close");
+    closeBtn.addEventListener("pointerdown", swallow);
+    closeBtn.addEventListener("click", (event) => {
+      event.stopPropagation();
+      this.closeGallery();
+    });
+    if (canSwap) {
+      const swapTo = (side) => (event) => {
+        event.stopPropagation();
+        if (this.galleryShowSide === side) return;
+        this.galleryShowSide = side;
+        this.reloadGalleryImage();
+      };
+      for (const [sel, side] of [[".gallery-nav.prev", "left"], [".gallery-nav.next", "right"]]) {
+        const btn = el.querySelector(sel);
+        btn.addEventListener("pointerdown", swallow);
+        btn.addEventListener("click", swapTo(side));
+      }
+    }
 
     img.onload = () => {
       if (this.gallery !== g) return;
@@ -3216,6 +3313,18 @@ export class MagazineScene {
     g.el.removeEventListener("dblclick", g.onDblClick);
     this.container.classList.remove("in-gallery");
     window.setTimeout(() => g.el.remove(), 380);
+  }
+
+  // Swap the gallery to the other page of the spread (‹ › controls) without
+  // tearing down the overlay; the existing img.onload re-fits the new page.
+  reloadGalleryImage() {
+    const g = this.gallery;
+    if (!g) return;
+    const info = this.galleryPageInfo();
+    if (!info) return;
+    const label = g.el.querySelector(".gallery-label");
+    if (label) label.innerHTML = info.label;
+    g.img.src = info.src;
   }
 
   handleResize() {
