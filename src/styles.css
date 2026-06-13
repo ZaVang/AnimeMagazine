@@ -2,7 +2,8 @@
   color-scheme: dark;
   --paper: rgba(255, 248, 238, 0.86);
   --paper-dim: rgba(255, 248, 238, 0.52);
-  --paper-faint: rgba(255, 248, 238, 0.28);
+  /* was 0.28: near-invisible for the feature line and key hints */
+  --paper-faint: rgba(255, 248, 238, 0.42);
   --hairline: rgba(255, 248, 238, 0.16);
   --ink: #0a0807;
   --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
@@ -61,6 +62,9 @@ body {
   pointer-events: none;
   z-index: 2;
   display: block;
+  /* HUD text floats over a live 3D scene; a soft ink scrim keeps it legible
+     when the camera brings bright cream pages under any label. */
+  text-shadow: 0 1px 6px rgba(10, 8, 7, 0.5);
 }
 
 .hud-item {
@@ -378,6 +382,9 @@ body {
   letter-spacing: 0.14em;
   line-height: 1.7;
   color: var(--paper);
+  /* the caption sits low-center, directly over the magazine; bright page areas
+     reach luma ~205, so it needs a stronger halo than the rest of the HUD */
+  text-shadow: 0 1px 12px rgba(10, 8, 7, 0.72), 0 0 3px rgba(10, 8, 7, 0.6);
 }
 
 .hud-caption .cap-zh {
@@ -385,6 +392,7 @@ body {
   font-size: 11px;
   letter-spacing: 0.12em;
   color: var(--paper-dim);
+  text-shadow: 0 1px 12px rgba(10, 8, 7, 0.72), 0 0 3px rgba(10, 8, 7, 0.6);
 }
 
 /* ---- Gallery (鑑賞モード) ------------------------------------------------ */
