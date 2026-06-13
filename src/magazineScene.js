@@ -337,14 +337,17 @@ export class MagazineScene {
   createCamera() {
     this.camera = new THREE.PerspectiveCamera(34, 1, 0.1, 100);
     this.cameraStart = new THREE.Vector3(0.18, 3.35, 5.6);
-    this.cameraClosed = new THREE.Vector3(-0.12, 2.32, 3.08);
-    this.cameraClosedBack = new THREE.Vector3(MAGAZINE_X - 0.24, 2.32, 3.08);
+    // Closed-cover framing pushed in a touch (z 3.08 -> 2.86, y 2.32 -> 2.28)
+    // so the cover has more presence on the first screen; the masthead still
+    // clears the top edge. The intro lerps here, so it settles closer too.
+    this.cameraClosed = new THREE.Vector3(-0.12, 2.28, 2.86);
+    this.cameraClosedBack = new THREE.Vector3(MAGAZINE_X - 0.24, 2.28, 2.86);
     // Original distance: pushing closer exaggerates depth perspective and
     // makes the tall page ratio read even longer than it is.
     this.cameraOpen = new THREE.Vector3(MAGAZINE_X, 2.96, 3.72);
     this.targetStart = new THREE.Vector3(-0.16, 0.02, -0.02);
-    this.targetClosed = new THREE.Vector3(MAGAZINE_X + 0.55, 0.06, -0.04);
-    this.targetClosedBack = new THREE.Vector3(MAGAZINE_X - 0.55, 0.06, -0.04);
+    this.targetClosed = new THREE.Vector3(MAGAZINE_X + 0.55, 0.1, -0.04);
+    this.targetClosedBack = new THREE.Vector3(MAGAZINE_X - 0.55, 0.1, -0.04);
     this.targetOpen = new THREE.Vector3(MAGAZINE_X, 0.07, -0.03);
     this.camera.position.copy(this.cameraStart);
     this.camera.lookAt(this.targetStart);
@@ -2107,9 +2110,28 @@ export class MagazineScene {
     }
   }
 
+  // One-time nudge toward the signature interaction: the first time the book
+  // opens onto a spread with a foldable figure, invite a tap. The page-turn
+  // affordance is already implied by the cursor chevrons, so the standee (the
+  // hidden, signature feature) is the more valuable thing to surface here.
+  maybeShowStandeeHint() {
+    if (this.standeeHintShown || this.firstTurnDone || !this.hudHint) return;
+    let hasStandee = false;
+    for (const standee of this.standees.values()) {
+      if (standee.spread === this.spreadIndex && standee.state === "folded") {
+        hasStandee = true;
+        break;
+      }
+    }
+    if (!hasStandee) return;
+    this.standeeHintShown = true;
+    this.hudHint.textContent = "彼女にふれると立ち上がる";
+    this.hudHint.classList.remove("is-faded");
+  }
+
   showRunwayHint() {
     if (!this.hudHint) return;
-    this.hudHint.textContent = "彼女をクリックするとランウェイ";
+    this.hudHint.textContent = "彼女にふれるとランウェイ";
     this.hudHint.classList.remove("is-faded");
   }
 
@@ -2625,6 +2647,7 @@ export class MagazineScene {
         this.activeAnimation = null;
         this.state = "open";
         this.syncHud();
+        this.maybeShowStandeeHint();
       }
       return;
     }
