@@ -124,9 +124,25 @@
 
 > 注意：3D 视图里正文本就很小，超采样让它更清晰但不等于"能舒服阅读"——细读仍走 Sprint 5 的鑑賞缩放。
 
-> 留作后续（Sprint 10 候选）：加载期卡顿根治——`ImageBitmapLoader` 离主线程解码、
-> 纹理上传分帧、立牌 NCC 分析分片/延后。Sprint 8/9 已降逐帧负载、减轻打开时的叠加掉帧，
-> 但「打开瞬间」的根治需动加载/立牌管线。
+## Sprint 10 — 加载期卡顿（离主线程解码 + 分帧，已完成）
+
+「打开卡顿」是主线程的 CPU 加载工作：~85 张内页/封面图用 `TextureLoader`（HTMLImage 主线程解码）
++ 15 个立牌的同步 NCC 分析（`rasterAlphaMask` / `matchFigureToPrint`）在 `buildStandee` 里一次性堆叠。
+
+- [x] 内页/封面走 `ImageBitmapLoader` 离主线程解码（`imageOrientation:'flipY'` + `texture.flipY=false`
+      复刻原朝向、消除 flipY 警告）。**立牌相关贴图保持 `raw`（`TextureLoader` 不翻转）**，
+      因为 `buildStandee` 会逐像素分析图/表，bitmap 的预翻转会破坏裁剪与网格切分。
+- [x] `rasterPageLuma` 对 bitmap 内页在分析时翻回正向，保证「立绘 vs 印刷」相关匹配仍在原坐标系，
+      立牌锚定位置不变。
+- [x] `loadStandees` 在每个 `buildStandee` 后 `await` 让出一帧，15 个立牌的 NCC 分散到多帧，
+      不再一次性卡住主线程。
+- [x] 已验证：内页/封面朝向与配色不变、立牌正确起立并锚定到印刷人物（fit score 0.48~0.89、
+      feetY≈页面底部）、无 flipY 警告、无报错。
+
+> 注：本 sprint 治的是「打开/翻页时的解码与立牌分析卡顿」。Sprint 9 的超采样带来的稳态 GPU 负载
+> 由自适应控制器兜底（持续掉帧→先关景深、再回落到原生）。若稳态仍偏卡，可下调超采样上限或更早关景深。
+
+> 仍可继续（候选）：纹理 GPU 上传分帧（`initTexture` 队列化，每帧 1~2 张）、立牌 NCC 移至 Web Worker。
 
 ---
 

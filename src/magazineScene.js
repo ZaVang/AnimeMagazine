@@ -421,6 +421,12 @@ export class MagazineScene {
       this.setLoaderProgress(itemsLoaded / LOADER_ITEMS);
     };
     this.textureLoader = new THREE.TextureLoader(this.loadingManager);
+    // Print/figure art decodes off the main thread via ImageBitmap to avoid
+    // open-time jank. imageOrientation:'flipY' reproduces the default texture
+    // orientation so we can leave texture.flipY off (flipY is ignored for
+    // ImageBitmap anyway, and setting it false silences the warning).
+    this.bitmapLoader = new THREE.ImageBitmapLoader(this.loadingManager);
+    this.bitmapLoader.setOptions({ imageOrientation: "flipY" });
     this.maxAnisotropy = this.renderer.capabilities.getMaxAnisotropy();
 
     ([
@@ -477,6 +483,20 @@ export class MagazineScene {
   }
 
   async loadTexture(url, options = {}) {
+    // Non-tiling color art (covers, pages, standees) goes through the off-thread
+    // ImageBitmap path; tiling PBR maps keep the plain loader so their
+    // orientation and filtering stay exactly as before.
+    if (options.color && !options.repeat && !options.raw && this.bitmapLoader) {
+      const bitmap = await this.bitmapLoader.loadAsync(url);
+      const texture = new THREE.Texture(bitmap);
+      texture.flipY = false; // orientation already handled by imageOrientation:'flipY'
+      texture.colorSpace = THREE.SRGBColorSpace;
+      texture.anisotropy = this.maxAnisotropy;
+      texture.needsUpdate = true;
+      this.loadedTextures.push(texture);
+      this.disposables.push(texture);
+      return texture;
+    }
     const texture = await this.textureLoader.loadAsync(url);
     texture.colorSpace = options.color ? THREE.SRGBColorSpace : THREE.NoColorSpace;
     texture.anisotropy = this.maxAnisotropy;
@@ -1311,17 +1331,24 @@ export class MagazineScene {
       try {
         const [figureTexture, backgroundTexture, expressionTexture, actionTexture] =
           await Promise.all([
-            this.loadTexture(source.figure, { color: true }),
-            this.loadTexture(source.background, { color: true }),
+            // raw (non-bitmap) keeps these unflipped: buildStandee pixel-analyzes
+            // the figure/expression/action images, and the ImageBitmap path
+            // decodes pre-flipped which would corrupt the cutout/cell math.
+            this.loadTexture(source.figure, { color: true, raw: true }),
+            this.loadTexture(source.background, { color: true, raw: true }),
             source.expressions
-              ? this.loadTexture(source.expressions, { color: true })
+              ? this.loadTexture(source.expressions, { color: true, raw: true })
               : Promise.resolve(null),
             source.actions
-              ? this.loadTexture(source.actions, { color: true })
+              ? this.loadTexture(source.actions, { color: true, raw: true })
               : Promise.resolve(null),
           ]);
         if (this.disposed) return;
         this.buildStandee(source, figureTexture, backgroundTexture, expressionTexture, actionTexture);
+        // buildStandee runs synchronous cutout/NCC analysis; yield between
+        // standees so the 15 of them spread across frames instead of blocking
+        // the main thread in one long burst during the open.
+        await new Promise((resolve) => setTimeout(resolve, 0));
       } catch {
         /* the standee is optional decoration; the page works without it */
       }
@@ -1379,6 +1406,13 @@ export class MagazineScene {
     canvas.width = w;
     canvas.height = h;
     const ctx = canvas.getContext("2d", { willReadFrequently: true });
+    // Pages decode through ImageBitmap (pre-flipped via imageOrientation:'flipY');
+    // undo that here so the figure-vs-print correlation runs in the same
+    // orientation as the unflipped figure cutout and standee anchoring stays put.
+    if (typeof ImageBitmap !== "undefined" && image instanceof ImageBitmap) {
+      ctx.translate(0, h);
+      ctx.scale(1, -1);
+    }
     ctx.drawImage(image, 0, 0, w, h);
     const data = ctx.getImageData(0, 0, w, h).data;
     const luma = new Float32Array(w * h);
