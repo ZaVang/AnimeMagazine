@@ -5,6 +5,7 @@ import { BokehPass } from "three/examples/jsm/postprocessing/BokehPass.js";
 import { ShaderPass } from "three/examples/jsm/postprocessing/ShaderPass.js";
 import { OutputPass } from "three/examples/jsm/postprocessing/OutputPass.js";
 import { RoomEnvironment } from "three/examples/jsm/environments/RoomEnvironment.js";
+import { PageFlip } from "page-flip";
 
 const coverFrontUrl = new URL("../assets/image/cover.png", import.meta.url).href;
 const backCoverUrl = new URL("../assets/image/back-cover.png", import.meta.url).href;
@@ -3153,8 +3154,8 @@ export class MagazineScene {
       return;
     }
     if (this.gallery) {
-      if (event.code === "ArrowRight" || event.code === "ArrowDown") this.galleryGo(1);
-      else if (event.code === "ArrowLeft" || event.code === "ArrowUp") this.galleryGo(-1);
+      if (event.code === "ArrowRight" || event.code === "ArrowDown") this.galleryFlip(1);
+      else if (event.code === "ArrowLeft" || event.code === "ArrowUp") this.galleryFlip(-1);
       return;
     }
 
@@ -3260,179 +3261,94 @@ export class MagazineScene {
     const el = document.createElement("div");
     el.className = "gallery";
     el.innerHTML = `
-      <img class="gallery-img" alt="誌面" draggable="false" />
+      <div class="gallery-book"></div>
       <div class="gallery-label">${info.label}</div>
       <button class="gallery-close" type="button" aria-label="戻る">✕</button>
       <button class="gallery-nav prev" type="button" aria-label="前のページ">‹</button>
       <button class="gallery-nav next" type="button" aria-label="次のページ">›</button>
-      <div class="gallery-hint">‹ › ページ送り　ドラッグ・移動　ピンチ / ホイール・拡大　✕ / SPACE・戻る</div>
+      <div class="gallery-hint">ページの端をめくる / ‹ ›　✕ / SPACE・戻る</div>
     `;
     this.container.appendChild(el);
-    const img = el.querySelector(".gallery-img");
 
-    const g = {
-      el,
-      img,
-      entries,
-      index: startIndex,
-      scale: 1,
-      fit: 1,
-      x: 0,
-      y: 0,
-      natW: 0,
-      natH: 0,
-      drag: null,
-    };
+    // Single-page aspect taken from a loaded page, so the book is never distorted.
+    const sample =
+      this.pageMaterials.find((m) => m?.map?.image)?.map?.image ||
+      this.coverFrontMaterial?.map?.image;
+    const aspect = sample && sample.width ? sample.height / sample.width : PAGE_HEIGHT / PAGE_WIDTH;
+    const baseW = 600;
+
+    // Build real <img> pages. loadFromHTML keeps them as DOM images, which the
+    // browser always rasterizes at native resolution (crisp at any DPR); the
+    // loadFromImages path instead draws to a non-DPR-aware canvas and would blur
+    // on high-DPI screens, which is exactly what we are trying to fix.
+    const bookEl = el.querySelector(".gallery-book");
+    for (const entry of entries) {
+      const page = document.createElement("div");
+      page.className = "gallery-page";
+      if (entry.key === "cover" || entry.key === "back") page.dataset.density = "hard";
+      const pageImg = document.createElement("img");
+      pageImg.src = entry.src;
+      pageImg.alt = "誌面";
+      pageImg.draggable = false;
+      page.appendChild(pageImg);
+      bookEl.appendChild(page);
+    }
+
+    const pageFlip = new PageFlip(bookEl, {
+      width: baseW,
+      height: Math.round(baseW * aspect),
+      size: "stretch",
+      // StPageFlip switches to single-page portrait when the book is narrower
+      // than minWidth*2; 260 -> phones (~<520px) read one page, tablets/desktop
+      // keep the two-page spread.
+      minWidth: 260,
+      maxWidth: 1600,
+      minHeight: 300,
+      maxHeight: 2400,
+      maxShadowOpacity: 0.5,
+      showCover: true, // cover and back render as single hard pages
+      usePortrait: true, // one page on narrow screens, a spread on wide ones
+      mobileScrollSupport: false,
+      flippingTime: 700,
+      startPage: startIndex,
+    });
+    pageFlip.loadFromHTML(bookEl.querySelectorAll(".gallery-page"));
+
+    const g = { el, pageFlip, entries };
     this.gallery = g;
 
-    g.pointers = new Map();
-    g.pinch = null;
-    const twoPoints = () => [...g.pointers.values()];
-    const pinchDist = () => {
-      const [a, b] = twoPoints();
-      return Math.hypot(a.x - b.x, a.y - b.y);
-    };
-    const pinchMid = () => {
-      const [a, b] = twoPoints();
-      return { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
-    };
-
-    g.onPointerDown = (event) => {
-      g.pointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
-      try {
-        el.setPointerCapture(event.pointerId);
-      } catch {
-        /* best-effort */
-      }
-      if (g.pointers.size >= 2) {
-        // second finger down: start a pinch and stop any single-finger pan
-        g.drag = null;
-        el.classList.remove("is-dragging");
-        g.pinch = { dist: pinchDist(), scale: g.scale, mid: pinchMid(), x: g.x, y: g.y };
-      } else {
-        g.drag = { id: event.pointerId, startX: event.clientX, startY: event.clientY, baseX: g.x, baseY: g.y };
-        el.classList.add("is-dragging");
-      }
-    };
-    g.onPointerMove = (event) => {
-      if (!g.pointers.has(event.pointerId)) return;
-      g.pointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
-      if (g.pinch && g.pointers.size >= 2) {
-        const dist = pinchDist();
-        if (g.pinch.dist > 0) {
-          const next = THREE.MathUtils.clamp(
-            g.pinch.scale * (dist / g.pinch.dist),
-            g.fit * 0.6,
-            g.fit * 6,
-          );
-          const ratio = next / g.pinch.scale;
-          const m = g.pinch.mid;
-          g.x = m.x - (m.x - g.pinch.x) * ratio;
-          g.y = m.y - (m.y - g.pinch.y) * ratio;
-          g.scale = next;
-          this.applyGalleryTransform();
-        }
-        return;
-      }
-      if (g.drag && event.pointerId === g.drag.id) {
-        g.x = g.drag.baseX + (event.clientX - g.drag.startX);
-        g.y = g.drag.baseY + (event.clientY - g.drag.startY);
-        this.applyGalleryTransform();
-      }
-    };
-    g.onPointerUp = (event) => {
-      g.pointers.delete(event.pointerId);
-      try {
-        el.releasePointerCapture(event.pointerId);
-      } catch {
-        /* already released */
-      }
-      if (g.pointers.size < 2) g.pinch = null;
-      if (g.pointers.size === 1) {
-        // one finger remains: hand panning back to it from its current spot
-        const [id, p] = [...g.pointers.entries()][0];
-        g.drag = { id, startX: p.x, startY: p.y, baseX: g.x, baseY: g.y };
-        el.classList.add("is-dragging");
-      } else if (g.pointers.size === 0) {
-        g.drag = null;
-        el.classList.remove("is-dragging");
-      }
-    };
-    g.onWheel = (event) => {
-      event.preventDefault();
-      const rect = el.getBoundingClientRect();
-      const px = event.clientX - rect.left;
-      const py = event.clientY - rect.top;
-      const factor = Math.exp(-event.deltaY * 0.0012);
-      const next = THREE.MathUtils.clamp(g.scale * factor, g.fit * 0.6, g.fit * 4.5);
-      const ratio = next / g.scale;
-      g.x = px - (px - g.x) * ratio;
-      g.y = py - (py - g.y) * ratio;
-      g.scale = next;
-      this.applyGalleryTransform();
-    };
-    g.onDblClick = () => this.fitGallery();
-
-    el.addEventListener("pointerdown", g.onPointerDown);
-    el.addEventListener("pointermove", g.onPointerMove);
-    el.addEventListener("pointerup", g.onPointerUp);
-    el.addEventListener("pointercancel", g.onPointerUp);
-    el.addEventListener("wheel", g.onWheel, { passive: false });
-    el.addEventListener("dblclick", g.onDblClick);
-
-    // Overlay controls. stopPropagation on pointerdown keeps a button tap from
-    // starting a pan on the gallery surface underneath it.
-    const swallow = (event) => event.stopPropagation();
-    const closeBtn = el.querySelector(".gallery-close");
-    closeBtn.addEventListener("pointerdown", swallow);
-    closeBtn.addEventListener("click", (event) => {
-      event.stopPropagation();
-      this.closeGallery();
-    });
-    for (const [sel, delta] of [[".gallery-nav.prev", -1], [".gallery-nav.next", 1]]) {
-      const btn = el.querySelector(sel);
-      btn.addEventListener("pointerdown", swallow);
-      btn.addEventListener("dblclick", swallow); // don't trigger the fit-reset
-      btn.addEventListener("click", (event) => {
-        event.stopPropagation();
-        this.galleryGo(delta);
-      });
-    }
-    this.updateGalleryNav();
-
-    img.onload = () => {
+    const label = el.querySelector(".gallery-label");
+    const prevBtn = el.querySelector(".gallery-nav.prev");
+    const nextBtn = el.querySelector(".gallery-nav.next");
+    const syncChrome = () => {
       if (this.gallery !== g) return;
-      g.natW = img.naturalWidth;
-      g.natH = img.naturalHeight;
-      this.fitGallery();
-      el.classList.add("is-on");
+      const count = pageFlip.getPageCount() || entries.length;
+      const i = THREE.MathUtils.clamp(pageFlip.getCurrentPageIndex(), 0, entries.length - 1);
+      if (label) label.innerHTML = entries[i]?.label ?? "";
+      if (prevBtn) prevBtn.hidden = i <= 0;
+      if (nextBtn) nextBtn.hidden = i >= count - 1;
     };
-    img.src = info.src;
+    pageFlip.on("flip", syncChrome);
+    pageFlip.on("changeOrientation", syncChrome);
+    syncChrome();
+
+    el.querySelector(".gallery-close").addEventListener("click", () => this.closeGallery());
+    prevBtn.addEventListener("click", () => pageFlip.flipPrev());
+    nextBtn.addEventListener("click", () => pageFlip.flipNext());
+
+    // setTimeout (not rAF) so the fade-in still runs if the tab is backgrounded.
+    window.setTimeout(() => {
+      if (this.gallery === g) el.classList.add("is-on");
+    }, 20);
     this.container.classList.add("in-gallery");
   }
 
-  fitGallery() {
-    const g = this.gallery;
-    if (!g || !g.natW || !g.natH) return;
-    const vw = this.container.clientWidth || this.appliedWidth || window.innerWidth;
-    const vh = this.container.clientHeight || this.appliedHeight || window.innerHeight;
-    g.fit = Math.min((vw * 0.86) / g.natW, (vh * 0.86) / g.natH);
-    g.scale = g.fit;
-    g.x = (vw - g.natW * g.scale) / 2;
-    g.y = (vh - g.natH * g.scale) / 2;
-    this.applyGalleryTransform();
-  }
-
-  applyGalleryTransform() {
+  // Arrow keys / ‹ › buttons drive the book's own flip animation.
+  galleryFlip(delta) {
     const g = this.gallery;
     if (!g) return;
-    const vw = this.container.clientWidth || this.appliedWidth || window.innerWidth;
-    const vh = this.container.clientHeight || this.appliedHeight || window.innerHeight;
-    const width = g.natW * g.scale;
-    const height = g.natH * g.scale;
-    g.x = THREE.MathUtils.clamp(g.x, vw * 0.15 - width, vw * 0.85);
-    g.y = THREE.MathUtils.clamp(g.y, vh * 0.15 - height, vh * 0.85);
-    g.img.style.transform = `translate3d(${g.x}px, ${g.y}px, 0) scale(${g.scale})`;
+    if (delta > 0) g.pageFlip.flipNext();
+    else g.pageFlip.flipPrev();
   }
 
   closeGallery() {
@@ -3440,45 +3356,13 @@ export class MagazineScene {
     if (!g) return;
     this.gallery = null;
     g.el.classList.remove("is-on");
-    g.el.removeEventListener("pointerdown", g.onPointerDown);
-    g.el.removeEventListener("pointermove", g.onPointerMove);
-    g.el.removeEventListener("pointerup", g.onPointerUp);
-    g.el.removeEventListener("pointercancel", g.onPointerUp);
-    g.el.removeEventListener("wheel", g.onWheel);
-    g.el.removeEventListener("dblclick", g.onDblClick);
+    try {
+      g.pageFlip.destroy();
+    } catch {
+      /* already torn down */
+    }
     this.container.classList.remove("in-gallery");
     window.setTimeout(() => g.el.remove(), 380);
-  }
-
-  // Step through the issue (‹ › buttons or arrow keys) without tearing down the
-  // overlay; the existing img.onload re-fits each new page.
-  galleryGo(delta) {
-    const g = this.gallery;
-    if (!g || !g.entries) return;
-    const next = THREE.MathUtils.clamp(g.index + delta, 0, g.entries.length - 1);
-    if (next === g.index) return;
-    g.index = next;
-    this.reloadGalleryImage();
-    this.updateGalleryNav();
-  }
-
-  updateGalleryNav() {
-    const g = this.gallery;
-    if (!g) return;
-    const prev = g.el.querySelector(".gallery-nav.prev");
-    const next = g.el.querySelector(".gallery-nav.next");
-    if (prev) prev.hidden = g.index <= 0;
-    if (next) next.hidden = g.index >= g.entries.length - 1;
-  }
-
-  reloadGalleryImage() {
-    const g = this.gallery;
-    if (!g || !g.entries) return;
-    const info = g.entries[g.index];
-    if (!info) return;
-    const label = g.el.querySelector(".gallery-label");
-    if (label) label.innerHTML = info.label;
-    g.img.src = info.src;
   }
 
   handleResize() {
@@ -3495,7 +3379,7 @@ export class MagazineScene {
     // to dolly so far back that it reads as a tiny object on a vast floor.
     this.camera.fov = this.baseFov + this.portraitAmount() * this.portraitFovGain;
     this.camera.updateProjectionMatrix();
-    if (this.gallery) this.fitGallery();
+    if (this.gallery) this.gallery.pageFlip.update();
   }
 
   // --- Frame loop -----------------------------------------------------------------
@@ -3505,6 +3389,14 @@ export class MagazineScene {
     if (!this.lastFrameTime) this.lastFrameTime = now;
     const delta = Math.min((now - this.lastFrameTime) / 1000, 0.05);
     this.lastFrameTime = now;
+
+    // While the reading overlay is up the 3D scene is fully covered; don't render
+    // it (keep the loop alive so it resumes the instant the overlay closes).
+    if (this.gallery) {
+      this.frameId = window.requestAnimationFrame(this.animate);
+      return;
+    }
+
     this.elapsedTime += delta;
     const elapsed = this.elapsedTime;
 

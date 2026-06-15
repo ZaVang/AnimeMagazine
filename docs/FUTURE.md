@@ -158,6 +158,26 @@
 
 > 如果关掉景深后觉得"少了点电影感"，把 `createPostProcessing` 里的 `this.bokehPass.enabled = false` 删掉即可恢复。
 
+## Sprint 12 — 鑑賞阅读层 → DOM 翻页器（StPageFlip，已完成）
+
+架构决策（见记忆 keep-threejs-3d-installation）：3D 主体保留，只把阅读层升级。
+鑑賞 overlay 从「单图平移/缩放」换成 **StPageFlip DOM 翻页书**：真实翻页动画 + 原生清晰。
+
+- [x] 引入 `page-flip` 依赖。鑑賞打开时用既有线性页表（封面→内页→奥付→封底）构建翻页书。
+- [x] **关键：用 `loadFromHTML`（真实 `<img>` 页）而非 `loadFromImages`**。后者画到一张
+      **非 DPR 感知的 canvas**，在高分屏会重新变糊；真实 DOM `<img>` 浏览器永远按原生分辨率栅格化，
+      任何 DPR 都清晰（实测 hasCanvas=false、18 张真 img、cover 原生 941×1672）。
+- [x] 响应式：`usePortrait` + `minWidth:260`（阈值 ~520px）→ 手机单页竖排、平板/桌面双页跨页。
+      实测 375px=portrait/单页满宽，1280px=landscape/居中跨页。
+- [x] 入口/退出保留（鑑賞按钮 / Space / Esc / ✕）；`‹ ›` 与方向键映射到 `flipPrev/flipNext`；
+      翻页时同步页码标签与箭头显隐。
+- [x] 鑑賞打开时**跳过 3D 渲染**（场景被全覆盖），关闭即恢复——省 GPU。
+- [x] 已验证：构建/页数(18)/起始页/翻页/标签同步/响应式/无报错。**翻页曲卷动画为库驱动，
+      无头环境（WebGL rAF 占用）截不到动画，需在真实浏览器肉眼确认顺滑度。**
+
+> 取舍：换用翻页书后**移除了旧的捏合缩放**（StPageFlip 不内置）。当前单页满屏已比 3D 视图清晰得多；
+> 若仍需放大细看小字，后续可加「双击页面 → 单页缩放灯箱」（候选）。
+
 ---
 
 # 功能 Roadmap（既有规划）
