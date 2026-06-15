@@ -1,13 +1,53 @@
+# Dependencies
 node_modules/
+.pnp
+.pnp.js
+
+# Build output
 dist/
-.env*
+dist-ssr/
+build/
+
+# Vite / tooling cache
+.vite/
+*.tsbuildinfo
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# Environment / local config
+.env
+.env.*
+!.env.example
 *.local
+
+# Claude Code local (machine-specific) settings
 .claude/settings.local.json
 
-# scratch / audit artifacts
+# Editor directories and files
+.vscode/*
+!.vscode/extensions.json
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Scratch / audit artifacts
 tmp/
 
-# heavy working + backup assets not used at runtime
+# Heavy working + backup assets not used at runtime
 # (runtime loads from public/pbr, assets/image, assets/image-packs, assets/video)
 assets/backup/
 assets/pbr/
