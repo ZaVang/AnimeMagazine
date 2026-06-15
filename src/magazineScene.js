@@ -317,12 +317,12 @@ export class MagazineScene {
     });
     // Supersampling (SSAA). The scene at native resolution is undersampled: the
     // 2048² pages carry more detail than there are screen pixels, so fine print
-    // reads soft. Render ABOVE native (up to 2×, capped at 2.5 for memory) and
-    // let trackFrameQuality fall back toward native on weak GPUs. The floor is
-    // native dpr: we never render below the screen (that was the old blur).
+    // reads soft. Render ABOVE native (up to 2×, capped at 2.0 to keep the GPU
+    // cost sane) and let trackFrameQuality fall back toward native on weak GPUs.
+    // The floor is native dpr: we never render below the screen (the old blur).
     this.dpr = window.devicePixelRatio || 1;
     this.qualityFloor = this.dpr;
-    this.qualityCeil = Math.min(this.dpr * 2, 2.5);
+    this.qualityCeil = Math.min(this.dpr * 2, 2.0);
     this.pixelRatio = this.qualityCeil;
     this.renderer.setPixelRatio(this.pixelRatio);
     if (import.meta.env.DEV) {
@@ -406,6 +406,11 @@ export class MagazineScene {
       aperture: 0.00012,
       maxblur: 0.0075,
     });
+    // Off by default: the magazine sits on the focus plane so DoF only softens
+    // the far floor (on/off looks nearly identical), yet it is the priciest
+    // per-frame pass and scales with the supersampled pixel count. Kept in the
+    // chain (disabled passes are skipped) so it is a one-line toggle to restore.
+    this.bokehPass.enabled = false;
     this.composer.addPass(this.bokehPass);
 
     this.grainPass = new ShaderPass(GrainShader);
@@ -3577,23 +3582,19 @@ export class MagazineScene {
 
     const SLOW = 22; // ~45fps and below -> trim
     const SMOOTH = 17; // comfortably at ~60fps -> eligible to recover
+    // Resolution is the only lever here: DoF is off by default (not a perf
+    // fallback). Floor is native, so under load we trade supersampling crispness
+    // for smoothness but never drop below the screen.
     if (q.ema > SLOW) {
-      if (this.bokehPass?.enabled) {
-        this.bokehPass.enabled = false; // the biggest per-pixel cost goes first
-      } else if (this.pixelRatio > this.qualityFloor + 0.01) {
+      if (this.pixelRatio > this.qualityFloor + 0.01) {
         this.applyQuality(Math.max(this.qualityFloor, this.pixelRatio - 0.25));
-      } else {
-        return; // already at the floor with DoF off; nothing more to give
+        q.since = 0;
+        q.ema = SMOOTH;
+        q.backoff = Math.min(q.backoff * 2, 16);
       }
-      q.since = 0;
-      q.ema = SMOOTH;
-      q.backoff = Math.min(q.backoff * 2, 16);
     } else if (q.ema < SMOOTH && q.since > 5 * q.backoff) {
       if (this.pixelRatio < this.qualityCeil - 0.01) {
         this.applyQuality(Math.min(this.qualityCeil, this.pixelRatio + 0.25));
-        q.since = 0;
-      } else if (this.bokehPass && !this.bokehPass.enabled) {
-        this.bokehPass.enabled = true;
         q.since = 0;
       }
     }
