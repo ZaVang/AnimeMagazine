@@ -307,25 +307,27 @@ export class MagazineScene {
 
   createRenderer() {
     this.renderer = new THREE.WebGLRenderer({
-      // AA is done by the multisampled composer target (see createPostProcessing);
-      // the default-framebuffer AA would be wasted because the final pass is a
-      // full-screen quad with no geometry edges to smooth.
+      // No MSAA: the pages are high-detail art shown small and at a grazing
+      // angle, so the softness is texture-interior undersampling, which MSAA
+      // cannot fix. We supersample instead (render above native, see below),
+      // which anti-aliases edges and interiors both.
       antialias: false,
       alpha: true,
       powerPreference: "high-performance",
     });
-    // Adaptive resolution. The old hard 1.5 cap rendered below native on
-    // high-DPI screens, and the browser upscaled the result, so the whole scene
-    // looked blurry. Render at native (capped at 2, beyond which it is wasteful)
-    // and let trackFrameQuality dial it down only if frames stay slow.
+    // Supersampling (SSAA). The scene at native resolution is undersampled: the
+    // 2048² pages carry more detail than there are screen pixels, so fine print
+    // reads soft. Render ABOVE native (up to 2×, capped at 2.5 for memory) and
+    // let trackFrameQuality fall back toward native on weak GPUs. The floor is
+    // native dpr: we never render below the screen (that was the old blur).
     this.dpr = window.devicePixelRatio || 1;
-    this.qualityCeil = Math.min(this.dpr, 2);
-    this.qualityFloor = Math.min(this.dpr, 1);
+    this.qualityFloor = this.dpr;
+    this.qualityCeil = Math.min(this.dpr * 2, 2.5);
     this.pixelRatio = this.qualityCeil;
     this.renderer.setPixelRatio(this.pixelRatio);
     if (import.meta.env.DEV) {
       console.log(
-        `[render] devicePixelRatio=${this.dpr} → pixelRatio ${this.qualityCeil} (floor ${this.qualityFloor})`,
+        `[render] devicePixelRatio=${this.dpr} → pixelRatio ${this.pixelRatio} (native ${this.qualityFloor}, ceil ${this.qualityCeil})`,
       );
     }
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
@@ -391,16 +393,11 @@ export class MagazineScene {
   }
 
   createPostProcessing() {
-    // A multisampled, half-float render target: it restores the edge AA that the
-    // renderer's `antialias` cannot provide through a pass chain, and keeps the
-    // precision ACES tone mapping needs in OutputPass.
-    const size = this.renderer.getDrawingBufferSize(new THREE.Vector2());
-    const renderTarget = new THREE.WebGLRenderTarget(
-      Math.max(1, size.x),
-      Math.max(1, size.y),
-      { type: THREE.HalfFloatType, samples: 4 },
-    );
-    this.composer = new EffectComposer(this.renderer, renderTarget);
+    // Default composer target (HalfFloat, for ACES precision in OutputPass).
+    // No MSAA samples here: anti-aliasing comes from supersampling (pixelRatio
+    // above native), and an MSAA buffer on top of that at high pixelRatio would
+    // cost far too much memory for what it adds.
+    this.composer = new EffectComposer(this.renderer);
     this.composer.setPixelRatio(this.pixelRatio);
     this.composer.addPass(new RenderPass(this.scene, this.camera));
 
