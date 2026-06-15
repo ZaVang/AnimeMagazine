@@ -307,17 +307,36 @@ export class MagazineScene {
 
   createRenderer() {
     this.renderer = new THREE.WebGLRenderer({
-      antialias: true,
+      // AA is done by the multisampled composer target (see createPostProcessing);
+      // the default-framebuffer AA would be wasted because the final pass is a
+      // full-screen quad with no geometry edges to smooth.
+      antialias: false,
       alpha: true,
       powerPreference: "high-performance",
     });
-    this.pixelRatio = Math.min(window.devicePixelRatio || 1, 1.5);
+    // Adaptive resolution. The old hard 1.5 cap rendered below native on
+    // high-DPI screens, and the browser upscaled the result, so the whole scene
+    // looked blurry. Render at native (capped at 2, beyond which it is wasteful)
+    // and let trackFrameQuality dial it down only if frames stay slow.
+    this.dpr = window.devicePixelRatio || 1;
+    this.qualityCeil = Math.min(this.dpr, 2);
+    this.qualityFloor = Math.min(this.dpr, 1);
+    this.pixelRatio = this.qualityCeil;
     this.renderer.setPixelRatio(this.pixelRatio);
+    if (import.meta.env.DEV) {
+      console.log(
+        `[render] devicePixelRatio=${this.dpr} → pixelRatio ${this.qualityCeil} (floor ${this.qualityFloor})`,
+      );
+    }
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     this.renderer.toneMappingExposure = 0.98;
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFShadowMap;
+    // A 2048² shadow map re-rendered every frame for a near-static scene is pure
+    // waste; refresh it only while a shadow caster moves (see shadowsNeedUpdate).
+    this.renderer.shadowMap.autoUpdate = false;
+    this.renderer.shadowMap.needsUpdate = true;
     this.container.appendChild(this.renderer.domElement);
   }
 
@@ -372,7 +391,16 @@ export class MagazineScene {
   }
 
   createPostProcessing() {
-    this.composer = new EffectComposer(this.renderer);
+    // A multisampled, half-float render target: it restores the edge AA that the
+    // renderer's `antialias` cannot provide through a pass chain, and keeps the
+    // precision ACES tone mapping needs in OutputPass.
+    const size = this.renderer.getDrawingBufferSize(new THREE.Vector2());
+    const renderTarget = new THREE.WebGLRenderTarget(
+      Math.max(1, size.x),
+      Math.max(1, size.y),
+      { type: THREE.HalfFloatType, samples: 4 },
+    );
+    this.composer = new EffectComposer(this.renderer, renderTarget);
     this.composer.setPixelRatio(this.pixelRatio);
     this.composer.addPass(new RenderPass(this.scene, this.camera));
 
@@ -3471,9 +3499,80 @@ export class MagazineScene {
     if (!this.reducedMotion && this.grainPass) {
       this.grainPass.uniforms.uTime.value = elapsed;
     }
+
+    // Only re-render the shadow map while a caster is actually moving.
+    this.renderer.shadowMap.needsUpdate = this.shadowsNeedUpdate();
+    // Trim resolution / DoF if the GPU is sustainedly behind; recover when calm.
+    this.trackFrameQuality(now, delta);
+
     this.composer.render();
 
     this.frameId = window.requestAnimationFrame(this.animate);
+  }
+
+  anyStandeeUnfolded() {
+    for (const standee of this.standees.values()) {
+      if (standee.state !== "folded") return true;
+    }
+    return false;
+  }
+
+  // True while anything that casts a shadow is moving, plus a short settle tail
+  // so the final resting pose is captured. The magazine's idle micro-drift is
+  // sub-pixel in shadow terms, so a frozen map there is imperceptible.
+  shadowsNeedUpdate() {
+    if (this.shadowSettle === undefined) this.shadowSettle = 4;
+    const casterMoving =
+      !!this.activeAnimation || !!this.turn || !!this.show || this.anyStandeeUnfolded();
+    if (casterMoving) this.shadowSettle = 3;
+    if (this.shadowSettle > 0) {
+      this.shadowSettle -= 1;
+      return true;
+    }
+    return false;
+  }
+
+  // One-way-biased adaptive quality: drop fast when frames stay slow (shed DoF
+  // first, then resolution toward the floor), recover slowly after a long calm
+  // window. Frame interval is vsync-bounded, so we only treat sustained overruns
+  // as "slow" and probe recovery rarely (backoff) to avoid resolution pumping.
+  trackFrameQuality(now, delta) {
+    const q = this.quality ?? (this.quality = { ema: 16.7, since: 0, backoff: 1 });
+    const raw = now - (this.lastRawFrame ?? now);
+    this.lastRawFrame = now;
+    if (raw > 0 && raw < 250) q.ema += (raw - q.ema) * 0.08; // ignore tab-switch spikes
+    q.since += delta;
+    if (q.since < 1) return; // cooldown between changes
+
+    const SLOW = 22; // ~45fps and below -> trim
+    const SMOOTH = 17; // comfortably at ~60fps -> eligible to recover
+    if (q.ema > SLOW) {
+      if (this.bokehPass?.enabled) {
+        this.bokehPass.enabled = false; // the biggest per-pixel cost goes first
+      } else if (this.pixelRatio > this.qualityFloor + 0.01) {
+        this.applyQuality(Math.max(this.qualityFloor, this.pixelRatio - 0.25));
+      } else {
+        return; // already at the floor with DoF off; nothing more to give
+      }
+      q.since = 0;
+      q.ema = SMOOTH;
+      q.backoff = Math.min(q.backoff * 2, 16);
+    } else if (q.ema < SMOOTH && q.since > 5 * q.backoff) {
+      if (this.pixelRatio < this.qualityCeil - 0.01) {
+        this.applyQuality(Math.min(this.qualityCeil, this.pixelRatio + 0.25));
+        q.since = 0;
+      } else if (this.bokehPass && !this.bokehPass.enabled) {
+        this.bokehPass.enabled = true;
+        q.since = 0;
+      }
+    }
+  }
+
+  applyQuality(pixelRatio) {
+    this.pixelRatio = pixelRatio;
+    this.renderer.setPixelRatio(pixelRatio);
+    this.composer.setPixelRatio(pixelRatio);
+    this.handleResize();
   }
 
   dispose() {

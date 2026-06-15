@@ -85,6 +85,28 @@
 
 > 阅读路径定论：3D 浏览（整跨页入框）→ 想细读时进鑑賞（逐页 / 捏合缩放 / 整本翻）。
 
+## Sprint 8 — 渲染清晰度与性能（自适应画质，已完成）
+
+根因（实测，**不是 three.js 本身**：整场景仅 12 draw call / 82 三角形，直渲 <1ms）：
+- 模糊：`pixelRatio` 硬封顶 1.5 → 高分屏欠采样后被浏览器拉伸；后期管线用了 `samples:0`
+  的离屏 target，渲染器 `antialias:true` 被忽略，边缘发软。
+- 卡顿：BokehPass 逐帧（中位 2.2ms / p90 6.8ms，随像素放大）+ 2048² 阴影图 `autoUpdate`
+  每帧重渲；加载期 ~85 张纹理解码/上传 + 立牌 NCC 主线程分析。
+
+- [x] 解除 DPR 封顶：原生渲染、上限 2、下限 1（`qualityCeil/Floor`），dev 控制台打印实际 DPR。
+- [x] 后期补回抗锯齿：EffectComposer 改用多重采样 HalfFloat RT（`samples:4`），
+      渲染器 `antialias` 关掉（管线里本就无效，省默认帧缓冲 AA 开销）。
+- [x] 阴影按需：`shadowMap.autoUpdate=false`，仅在投影体（开合/翻页/立牌）运动时刷新
+      （`shadowsNeedUpdate` + settle 尾帧），静止时冻结复用上一张。
+- [x] 自适应画质（`trackFrameQuality`）：持续掉帧时**先关景深、再逐级降分辨率到下限**；
+      长时间平稳后**先升回分辨率、再开景深**。带 1s 冷却 + 指数回退，避免分辨率抖动。
+- [x] 已验证：MSAA/HalfFloat 生效、色彩与色调映射无变化、降/升档阶梯逻辑正确、
+      dev DPR 日志正常、无报错。
+
+> 留作后续（Sprint 9 候选）：加载期卡顿根治——`ImageBitmapLoader` 离主线程解码、
+> 纹理上传分帧、立牌 NCC 分析分片/延后。本 sprint 已降低逐帧负载、减轻打开时的叠加掉帧，
+> 但「打开瞬间」的根治需动加载/立牌管线。
+
 ---
 
 # 功能 Roadmap（既有规划）
