@@ -6,6 +6,15 @@ import { ShaderPass } from "three/examples/jsm/postprocessing/ShaderPass.js";
 import { OutputPass } from "three/examples/jsm/postprocessing/OutputPass.js";
 import { RoomEnvironment } from "three/examples/jsm/environments/RoomEnvironment.js";
 import { PageFlip } from "page-flip";
+import { loadPreferences, savePreferences } from "./preferences.js";
+import { parseDeepLink, hasDeepLinkState, buildShareUrl } from "./deeplink.js";
+import {
+  buildSpreadCommentaryIndex,
+  spreadHasCommentary,
+  buildCardViewModel,
+  isItemInRange,
+} from "./lookCard.js";
+import { RENDER } from "./render-config.js";
 
 const coverFrontUrl = new URL("../assets/image/cover.png", import.meta.url).href;
 const backCoverUrl = new URL("../assets/image/back-cover.png", import.meta.url).href;
@@ -81,11 +90,16 @@ const EXPRESSION_COLS = 3;
 const EXPRESSION_ROWS = 2;
 const EXPRESSION_CELLS = EXPRESSION_COLS * EXPRESSION_ROWS;
 const BLINK_CELL = 2;
-// commentary expression hints map onto the first sheet cells
-const EXPRESSION_HINTS = { neutral: 0, smile: 1 };
+// commentary expression hints map onto the 3x2 sheet cells: cell 0 calm/neutral,
+// cell 1 soft smile, cell 2 the contemplative look-aside (verified across packs 1/5/8).
+const EXPRESSION_HINTS = { neutral: 0, smile: 1, thinking: 2 };
 
 const textJa = (field) => (field && (field.ja ?? field.zh)) || "";
 const textZh = (field) => (field && (field.zh ?? field.ja)) || "";
+// Pick a bilingual field by the active locale, falling back to the other side
+// so a one-sided data row never renders blank.
+const localeText = (field, locale) =>
+  locale === "zh" ? textZh(field) : textJa(field);
 
 const TEXTURES = {
   wood: {
@@ -144,8 +158,23 @@ const GrainShader = {
   uniforms: {
     tDiffuse: { value: null },
     uTime: { value: 0 },
-    uAmount: { value: 0.042 },
-    uVignette: { value: 0.48 },
+    // VIS-GRAIN (Sprint 6 / Iter 1):
+    //   uAmount  0.042 → 0.030 (Evo 0.024 + Res keep 0.042 → conservative mid)
+    //   uVignette 0.48 → 0.32  (two of three reviewers — flat-lay photo norm
+    //                            0.1–0.2; 0.48 read as cinematic-dark and
+    //                            fought the "lift integrating brightness" goal)
+    // VIS-VIGNETTE-RIM (Sprint 6 / Iter 2): 0.32 → 0.20. With VIS-SRGB-FIX bg
+    // truly lighting up, 0.32 was pulling the just-lit corners back in. 0.20
+    // is mid of Evo + Research (both 0.20; Experience pushed 0.12 — judged
+    // too aggressive against the fresh sRGB headroom). applyShowDim's runway
+    // base must move in lockstep (now 0.20 + 0.3 = 0.50, was 0.32 + 0.3).
+    // applyShowDim still pulls vignette up by +0.3 for runway (now 0.20→0.50).
+    //
+    // TECH-1 (Sprint 6 / Iter 3): both values now read from render-config.js,
+    // so this default and applyShowDim's runway base are physically locked to
+    // one source of truth (no more silent desync).
+    uAmount: { value: RENDER.grain.amount },
+    uVignette: { value: RENDER.grain.vignette },
   },
   vertexShader: /* glsl */ `
     varying vec2 vUv;
@@ -228,6 +257,10 @@ export class MagazineScene {
     this.assetsReady = false;
     this.disposed = false;
     this.firstTurnDone = false;
+    this.standeeHintShown = false;
+    // one-shot discovery nudge once a figure has finished rising
+    this.standeeGuideShown = false;
+    this.guideStandee = null;
     this.loadedTextures = [];
     this.cameraTarget = new THREE.Vector3(-0.08, 0.04, -0.05);
     this.responsiveCameraA = new THREE.Vector3();
@@ -250,11 +283,20 @@ export class MagazineScene {
     this.rigRight = new THREE.Vector3();
     this.desiredTargetWork = new THREE.Vector3();
     this.gallery = null;
+    this.lookCard = null; // CARD-1: the open look card, or null. Never persisted.
+    this._spreadCommentaryIndex = null; // CARD-1: memoized spread→commentary index
     this.disposables = [];
     this.reducedMotion =
       typeof window.matchMedia === "function" &&
       window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     this.audio = { ctx: null, buffers: new Map(), started: false };
+
+    // Persisted preferences (locale / skip-intro / last spread). Read once up
+    // front; every later write goes through savePreferences so the on-disk blob
+    // and this.prefs stay in lockstep. Falls back to defaults if storage is
+    // unavailable or corrupt (see preferences.js).
+    this.prefs = loadPreferences();
+    this.locale = this.prefs.locale; // "ja" (default) | "zh"
 
     this.handleResize = this.handleResize.bind(this);
     this.handlePointerDown = this.handlePointerDown.bind(this);
@@ -264,6 +306,7 @@ export class MagazineScene {
     this.handleKeyDown = this.handleKeyDown.bind(this);
     this.handleKeyUp = this.handleKeyUp.bind(this);
     this.handleWindowBlur = this.handleWindowBlur.bind(this);
+    this.handleVisibilityChange = this.handleVisibilityChange.bind(this);
     this.animate = this.animate.bind(this);
   }
 
@@ -296,6 +339,16 @@ export class MagazineScene {
       this.startBackgroundPageLoads();
       void this.loadStandees();
       this.introStartTime = performance.now();
+      // A shared deep link (E5) wins over the local last-spread: land on its
+      // encoded spread/locale temporarily (no write-back to the visitor's own
+      // prefs). Only if there is no deep link do we fall back to the returning-
+      // visitor restore (C9): skip the cinematic intro and land on the last
+      // spread. Both run after the magazine geometry + responsive camera exist
+      // (createHud / handleResize above) and before animate(), so the first
+      // rendered frame is already settled rather than the closed cover.
+      if (!this.applyDeepLink()) {
+        this.restoreSession();
+      }
       this.finishLoader();
       void this.buildColophon();
       this.animate();
@@ -331,11 +384,28 @@ export class MagazineScene {
         `[render] devicePixelRatio=${this.dpr} → pixelRatio ${this.pixelRatio} (native ${this.qualityFloor}, ceil ${this.qualityCeil})`,
       );
     }
-    this.renderer.outputColorSpace = THREE.SRGBColorSpace;
-    this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    this.renderer.toneMappingExposure = 0.98;
+    this.renderer.outputColorSpace = RENDER.renderer.outputColorSpace;
+    this.renderer.toneMapping = RENDER.renderer.toneMapping;
+    // VIS-LIGHT (Sprint 6 / Iter 1): exposure 0.98 → 1.02. Conservative micro-
+    // lift (Res R1 wanted 1.05; we lifted env from 0.18→0.55 already so this
+    // is half-step to avoid blowing out cover spec). ACES still rolls off
+    // highlights so cover gloss does not clip.
+    this.renderer.toneMappingExposure = RENDER.renderer.exposure;
     this.renderer.shadowMap.enabled = true;
-    this.renderer.shadowMap.type = THREE.PCFShadowMap;
+    // VIS-SHADOWSOFT (Sprint 6 / Iter 1): PCF → PCFSoft. Old PCF had visible
+    // "stepped" shadow edges on the table contact under the magazine; soft
+    // PCF (4-tap PCF + bilinear) reads as paper-on-wood rather than print-
+    // out-on-glass. Same map size, same cost in practice.
+    //
+    // BUG-SHADOWMAP-DEPRECATED (Sprint 6 / Iter 2): PCFSoftShadowMap is a
+    // deprecated alias in r0.184+ (three.js #32591) that silently falls back
+    // to PCFShadowMap with a console warn x2 per fresh load. The new
+    // PCFShadowMap is itself the soft implementation, so withdrawing the
+    // alias just silences the warn — there is no pixel-layer change (the
+    // shadow edge softening Iter 1 wanted is already in effect via the new
+    // PCF). Do NOT switch to VSMShadowMap: VSM needs blurSamples tuning and
+    // can leak light at this shadow-map size, risk > gain. (See pitfalls.md.)
+    this.renderer.shadowMap.type = RENDER.renderer.shadowType;
     // A 2048² shadow map re-rendered every frame for a near-static scene is pure
     // waste; refresh it only while a shadow caster moves (see shadowsNeedUpdate).
     this.renderer.shadowMap.autoUpdate = false;
@@ -345,13 +415,44 @@ export class MagazineScene {
 
   createScene() {
     this.scene = new THREE.Scene();
-    this.scene.background = new THREE.Color(0x070604);
-    this.scene.fog = new THREE.Fog(0x070604, 5.2, 12);
+    // VIS-BG (Sprint 6 / Iter 1): bg 0x070604 → 0x18130e. The old "near black"
+    // read as "screen turned off, not a warm print shop". 0x18130e is a warm
+    // dark close to the cover boards so the off-page seam reads as room shadow,
+    // not as void. Fog uses the same color so the horizon does not hard-cut
+    // back to bg color past fog.far.
+    //
+    // VIS-SRGB-FIX (Sprint 6 / Iter 2): with THREE.ColorManagement.enabled=true
+    // (r0.184 default), `new THREE.Color(hex)` treats the hex as sRGB input and
+    // converts to linear; combined with ACES tonemap (low-end S-curve crush)
+    // and the OutputPass sRGB encode, dark values like 0x18130e were measured
+    // at runtime as RGB ~(2,1,1) instead of the expected ~(24,19,14). Declare
+    // this hex as already-linear via `Color.setHex(hex, LinearSRGBColorSpace)`
+    // so the round-trip lands on the source-intent value. This applies to
+    // background / fog / material.color (the OutputPass path); light.color is
+    // intentionally NOT changed (it feeds PBR shader uniforms in linear space
+    // — see pitfalls.md, the "light vs material hex paths" entry).
+    this.scene.background = new THREE.Color().setHex(RENDER.scene.bgHex, THREE.LinearSRGBColorSpace);
+    // BUG-FOG-NEAR (Sprint 6 / Iter 1): fog.near 5.2 > cam→lookAt distance
+    // ~4.73m, so the entire scene was inside fog.near (= fog inactive). With
+    // cameraOpen at (MAGAZINE_X, 2.96, 3.72) → targetOpen (MAGAZINE_X, 0.07,
+    // -0.03), distance ≈ 4.73; fog.near 2.8 leaves ~1.9m focused-foreground
+    // headroom and 7.5m far so the far floor blends into bg over a real range.
+    //
+    // VIS-FOG-FAR (Sprint 6 / Iter 3): fog.far 7.5 → 9.0 to soften the band
+    // jump near the far floor (Experience measured max adjacent-band lum diff
+    // 17 at Iter 2; target ≤12). near=2.8 unchanged (still < cam→lookAt).
+    const fogColor = new THREE.Color().setHex(RENDER.scene.fogHex, THREE.LinearSRGBColorSpace);
+    this.scene.fog = new THREE.Fog(fogColor, RENDER.scene.fogNear, RENDER.scene.fogFar);
 
     const pmrem = new THREE.PMREMGenerator(this.renderer);
     const envTarget = pmrem.fromScene(new RoomEnvironment(), 0.04);
     this.scene.environment = envTarget.texture;
-    this.scene.environmentIntensity = 0.18;
+    // VIS-LIGHT (Sprint 6 / Iter 1): environmentIntensity 0.18 → 0.55. Three-
+    // way reviewer consensus: 0.18 makes the IBL functionally decorative; PBR
+    // baseline (Marmoset / Filament) is env ≈ 0.6–1.0 as the main fill before
+    // any directional. Bringing this up first lets us *lower* directional/
+    // pool spot relative cost while still hitting the brightness target.
+    this.scene.environmentIntensity = RENDER.scene.envIntensity;
     this.disposables.push(envTarget.texture, envTarget);
     pmrem.dispose();
   }
@@ -415,6 +516,13 @@ export class MagazineScene {
     this.composer.addPass(this.bokehPass);
 
     this.grainPass = new ShaderPass(GrainShader);
+    // BUG-GRAIN-RM: when reduced-motion is on, the previous animate-loop only
+    // froze uTime — but the noise hash is keyed on (vUv, uTime), so a frozen
+    // uTime leaves a stuck pattern of static dots over every frame (worse than
+    // moving grain, violates reduced-motion intent). Disable the pass entirely
+    // here — applyShowDim's vignette lerp during runway dim is also skipped,
+    // which is the accepted cost (reduced-motion users opt out of effects).
+    this.grainPass.enabled = !this.reducedMotion;
     this.composer.addPass(this.grainPass);
     this.composer.addPass(new OutputPass());
   }
@@ -526,7 +634,14 @@ export class MagazineScene {
       normalScale: new THREE.Vector2(normalStrength, normalStrength),
       roughnessMap: this.paperRoughness,
       aoMap: this.paperAo,
-      envMapIntensity: 0.32,
+      // VIS-ENVMAP (Sprint 6 / Iter 1): 0.32 → 0.55. Combined with env 0.55
+      // (was 0.18), effective IBL reflection 0.176→0.303 — paper edges and
+      // cover glints now read; previous 0.058 looked "plastic-flat". Used by
+      // cover front + back + every printed page (createPrintedMaterial is
+      // a one-stop). Cover roughness 0.42 stays glossier than pages 0.74 so
+      // the cover gains a slight glance highlight (a positive side effect:
+      // matches Phase-2 "coated paper" aspiration).
+      envMapIntensity: RENDER.envMap.printed,
     });
     this.disposables.push(material);
     return material;
@@ -550,7 +665,10 @@ export class MagazineScene {
       normalScale: new THREE.Vector2(normalStrength, normalStrength),
       roughnessMap: this.paperRoughness,
       aoMap: this.paperAo,
-      envMapIntensity: 0.2,
+      // VIS-ENVMAP (Sprint 6 / Iter 1): 0.20 → 0.40. Page-back paper now
+      // catches a softer share of room reflection at glancing angles — was
+      // visually disconnected from the front face under low env.
+      envMapIntensity: RENDER.envMap.paper,
       side,
     });
     this.disposables.push(material);
@@ -560,10 +678,31 @@ export class MagazineScene {
   // --- Lights, table, dust -------------------------------------------------
 
   createLights() {
-    this.hemiLight = new THREE.HemisphereLight(0xfff4e4, 0x171210, 0.5);
+    // VIS-LIGHT joint rebalance (Sprint 6 / Iter 1) — three-reviewer convergence:
+    // env 0.18→0.55 now does the IBL fill (createScene); these intensities are
+    // tuned so the directional/spot reshape on top of that IBL without doubling
+    // brightness. Numbers chosen from Scout D-table conservative column:
+    //   hemi  0.5  → 0.8   (sky/ground bounce can carry more weight now)
+    //   key   2.0  → 2.6   (between Evo 3.2 and Res 2.4 — sculpts the cover)
+    //   pool  34   → 28    (env doing more, spot can pull back: -18% per Evo)
+    //   fill  0.32 → 0.55  (between Evo 0.8 and Res 0.5 — standee side now lit)
+    //   rim   NEW  0.45    (Marmoset 3-point: back/above warm rim, no shadow)
+    // All four pre-existing lights are seeded into this.lightLevels lazily on
+    // first startShow (~:2346); the new rim must be registered there too, so
+    // applyShowDim can lerp it down for runway and lerp back when restoring.
+    // VIS-TABLE-SYM (Sprint 6 / Iter 3): hemi 0.8 → 0.95 to lift the dark
+    // front-left of the wood (Experience Iter 3: FL lum 73 vs FR 131 = 1.8:1).
+    // Hemi raises the whole table uniformly, so combined with the centered
+    // poolLight shift below the ratio collapses toward ≤1.4:1 without
+    // introducing a new light or breaking the runway 0.96-dim wiring.
+    this.hemiLight = new THREE.HemisphereLight(
+      RENDER.lights.hemi.skyHex,
+      RENDER.lights.hemi.groundHex,
+      RENDER.lights.hemi.intensity,
+    );
     this.scene.add(this.hemiLight);
 
-    this.keyLight = new THREE.DirectionalLight(0xffe4c3, 2.0);
+    this.keyLight = new THREE.DirectionalLight(RENDER.lights.key.hex, RENDER.lights.key.intensity);
     this.keyLight.position.set(-2.4, 4.8, 3.6);
     this.keyLight.castShadow = true;
     this.keyLight.shadow.mapSize.set(2048, 2048);
@@ -575,14 +714,59 @@ export class MagazineScene {
     this.keyLight.shadow.camera.bottom = -4;
     this.scene.add(this.keyLight);
 
-    this.poolLight = new THREE.SpotLight(0xffdfb4, 34, 11, 0.47, 0.75, 1.6);
-    this.poolLight.position.set(-1.1, 4.6, 1.9);
+    // SpotLight physical params (distance / angle / penumbra / decay) stay as
+    // literals here — Scout C-5 boundary: those are "light physics", not
+    // "render baseline config", so they don't move into render-config.js.
+    //
+    // VIS-TABLE-SYM (Sprint 6 / Iter 3): position.x -1.1 → -0.6 to center the
+    // spot above the magazine (magazine is at MAGAZINE_X = -0.36). The Iter 2
+    // baseline spot was off-axis to the LEFT, so the cone's penumbra falloff
+    // hit the front-left wood harder than the front-right — the wood
+    // asymmetry Experience flagged. Centering it (still slightly left of
+    // magazine, so the "off-axis dramatic spot" character is preserved)
+    // symmetricizes the falloff. distance / angle / penumbra / decay /
+    // target unchanged so the magazine's hot pool still reads as dramatic.
+    this.poolLight = new THREE.SpotLight(
+      RENDER.lights.pool.hex,
+      RENDER.lights.pool.intensity,
+      11,
+      0.47,
+      0.75,
+      1.6,
+    );
+    this.poolLight.position.set(-0.6, 4.6, 1.9);
     this.poolLight.target.position.set(MAGAZINE_X, 0, -0.05);
     this.scene.add(this.poolLight, this.poolLight.target);
 
-    this.fillLight = new THREE.DirectionalLight(0xd8e8ff, 0.32);
+    this.fillLight = new THREE.DirectionalLight(RENDER.lights.fill.hex, RENDER.lights.fill.intensity);
     this.fillLight.position.set(3.8, 3.2, -2.6);
     this.scene.add(this.fillLight);
+
+    // VIS-RIM (Sprint 6 / Iter 1): warm back/above rim per Marmoset 3-point
+    // baseline. Behind the magazine, slightly above.
+    // castShadow=false — an extra 2048² shadow map for a back light costs more
+    // than the light gains (per Scout VIS-RIM note).
+    //
+    // VIS-VIGNETTE-RIM (Sprint 6 / Iter 2): intensity 0.45 → 0.9 (Evo+Research
+    // mid-low). Evo measured Iter 1 rim contributing < 3% of total irradiance
+    // (env 0.55 + key 2.6 + fill 0.55 + pool 28 dominated) — the back gold
+    // edge on standees was effectively invisible. 2x lift keeps the rim
+    // honest without overpowering ACES highlight rolloff on the cover spec.
+    // Position (0.8, 3.4, -3.2) stays: 84.6° to keyLight is a textbook
+    // back-light angle — Experience reviewer's "angle too small" was a misread
+    // (see Scout D.2 / negotiation.md). applyShowDim and lightLevels were
+    // already wired in Iter 1 (lazy capture picks the new 0.9 automatically).
+    //
+    // VIS-RIM-BOOST (Sprint 6 / Iter 3): 0.9 → 1.5 via render-config (Iter 3
+    // cheapest path a — boost intensity, KEEP position). Experience Iter 3
+    // measured rim contribution still invisible at 0.9 (no lum peak around
+    // standee top, just a gradient). Position (0.8, 3.4, -3.2) preserved
+    // (Iter 2 red-line: dihedral with keyLight is already a textbook back-
+    // light). lightLevels lazy-captures rim.intensity on first startShow so
+    // the new 1.5 will be the runway restore target automatically.
+    this.rimLight = new THREE.DirectionalLight(RENDER.lights.rim.hex, RENDER.lights.rim.intensity);
+    this.rimLight.position.set(0.8, 3.4, -3.2);
+    this.scene.add(this.rimLight);
   }
 
   createTable() {
@@ -595,8 +779,15 @@ export class MagazineScene {
       aoMap: this.woodAo,
       roughness: 0.78,
       metalness: 0,
-      normalScale: new THREE.Vector2(0.18, 0.18),
-      envMapIntensity: 0.26,
+      // VIS-WOODSEAM (Sprint 6 / Iter 1): 0.18 → 0.28. Tile seams were visible
+      // on portrait because normal strength too low to break up the wood
+      // repeat; lifting normal lets micro-grain (across the tile) dominate
+      // over the tile period.
+      normalScale: new THREE.Vector2(0.28, 0.28),
+      // VIS-ENVMAP wood (Sprint 6 / Iter 1): 0.26 → 0.40. Aligned with paper-
+      // back so the table picks up the warmer IBL too — was reading too matte
+      // before, more "tile floor" than "wood table" under low env.
+      envMapIntensity: RENDER.envMap.table,
     });
     this.disposables.push(geometry, material);
 
@@ -705,10 +896,22 @@ export class MagazineScene {
       normalScale: new THREE.Vector2(0.12, 0.12),
     });
     const spineMaterial = new THREE.MeshStandardMaterial({
-      color: 0x171311,
+      // VIS-EDGE-COLOR (Sprint 6 / Iter 1): 0x171311 → 0x2a2018. Near-black
+      // 0x171311 read as "painted-black bootleg book edge"; 0x2a2018 is a warm
+      // chocolate that still grounds the spine against the cover but no longer
+      // reads as void. (Audit report named edgeMaterial; the actual offender
+      // is spineMaterial — edgeMaterial 0xf4eee3 is the right paper cream.)
+      //
+      // VIS-SRGB-FIX (Sprint 6 / Iter 2): set via LinearSRGBColorSpace so the
+      // intended chocolate hex isn't crushed back near-black by the sRGB→linear
+      // → ACES → sRGB round-trip. See the createScene/background note for the
+      // full chain and reasoning.
+      color: new THREE.Color().setHex(0x2a2018, THREE.LinearSRGBColorSpace),
       roughness: 0.62,
       metalness: 0,
-      envMapIntensity: 0.28,
+      // Lift envMap on spine to match cover's new reflectivity — keep it
+      // subdued so the spine still reads darker than the cover face.
+      envMapIntensity: RENDER.envMap.spine,
     });
     this.disposables.push(edgeMaterial, spineMaterial);
 
@@ -782,11 +985,20 @@ export class MagazineScene {
 
     const longEdgeGeometry = new THREE.BoxGeometry(PAGE_WIDTH, 0.018, 0.02);
     const shortEdgeGeometry = new THREE.BoxGeometry(0.02, 0.018, PAGE_HEIGHT);
+    // VIS-COVER-EDGE (Sprint 6 / Iter 2): 0x110f0e → 0x2a2018 + envMap 0.32 →
+    // 0.4. Iter 1 lifted spineMaterial (createPageBlocks) to 0x2a2018 but
+    // missed this cover edgeMaterial — same variable name, different scope
+    // (the 4-edge frame around the closed cover: edgeTop/Bottom/Outer/Spine).
+    // Once spineMaterial moved, this material became the only dead-black on
+    // the magazine, reading as a painted bevel. Match the spine's warm
+    // chocolate + envMap so the cover frame is visually continuous.
+    // VIS-SRGB-FIX (Sprint 6 / Iter 2): set via LinearSRGBColorSpace, same
+    // reason as bg/spine — non-map hex on a material.color path.
     const edgeMaterial = new THREE.MeshStandardMaterial({
-      color: 0x110f0e,
+      color: new THREE.Color().setHex(0x2a2018, THREE.LinearSRGBColorSpace),
       roughness: 0.54,
       metalness: 0,
-      envMapIntensity: 0.32,
+      envMapIntensity: RENDER.envMap.coverEdge,
     });
     this.disposables.push(longEdgeGeometry, shortEdgeGeometry, edgeMaterial);
 
@@ -955,6 +1167,38 @@ export class MagazineScene {
     if (spread < this.leafCount()) return this.leafFrontPage(spread);
     if (spread === this.leafCount()) return this.backInsidePage();
     return null;
+  }
+
+  // The single source of truth for the page→spread/side reverse lookup (the
+  // inverse of spreadLeftPage/spreadRightPage). buildStandee anchors figures by
+  // it and the 鑑賞 (gallery) write-back lands the 3D magazine on the spread a
+  // page belongs to — both go through here so the forward and reverse maps can
+  // never drift apart. Returns { spread, side } or null for a page that is not
+  // on any settled spread (so callers never silently land on spread 0).
+  pageToSpread(pageIndex) {
+    if (typeof pageIndex !== "number" || !Number.isFinite(pageIndex)) return null;
+    for (let s = 0; s <= this.leafCount(); s += 1) {
+      if (this.spreadLeftPage(s) === pageIndex) return { spread: s, side: "left" };
+      if (this.spreadRightPage(s) === pageIndex) return { spread: s, side: "right" };
+    }
+    return null;
+  }
+
+  // The spread → commentary index (CARD-1 / R-CARD-DATASOURCE). Built once,
+  // lazily, from the module-level STANDEE_SOURCES (page + eager-loaded
+  // commentary) reverse-mapped by pageToSpread — NOT from this.standees. So the
+  // card entry guard and the card itself both read commentary that is ready at
+  // module load, immune to the loadStandees build race (a cold deep-link card
+  // always has data). One index, two readers, no drift. The page-count is fixed
+  // for the magazine's lifetime, so a one-time build is safe to memoize.
+  spreadCommentaryIndex() {
+    if (!this._spreadCommentaryIndex) {
+      this._spreadCommentaryIndex = buildSpreadCommentaryIndex(
+        STANDEE_SOURCES,
+        (pageIndex) => this.pageToSpread(pageIndex),
+      );
+    }
+    return this._spreadCommentaryIndex;
   }
 
   materialForPage(pageIndex) {
@@ -1351,6 +1595,14 @@ export class MagazineScene {
           ]);
         if (this.disposed) return;
         this.buildStandee(source, figureTexture, backgroundTexture, expressionTexture, actionTexture);
+        // C9b: the masthead's first sync runs in restoreSession/applyDeepLink
+        // before any standee has finished building (loadStandees is fire-and-
+        // forget, build is spread across frames), so it cached a "no character"
+        // key for a spread that actually has one. Force a re-render after each
+        // build so the character name appears the moment its standee is ready —
+        // on a live page the per-frame animate() loop self-heals this, but a
+        // paused/headless tab would otherwise stay stuck on the issue line.
+        this.syncMasthead(true);
         // buildStandee runs synchronous cutout/NCC analysis; yield between
         // standees so the 15 of them spread across frames instead of blocking
         // the main thread in one long burst during the open.
@@ -1539,22 +1791,11 @@ export class MagazineScene {
         : { fallback: true };
     }
 
-    // the settled spread and side where this page is displayed
-    let spread = -1;
-    let side = null;
-    for (let s = 0; s <= this.leafCount(); s += 1) {
-      if (this.spreadLeftPage(s) === pageIndex) {
-        spread = s;
-        side = "left";
-        break;
-      }
-      if (this.spreadRightPage(s) === pageIndex) {
-        spread = s;
-        side = "right";
-        break;
-      }
-    }
-    if (spread < 0) return;
+    // the settled spread and side where this page is displayed (single source
+    // of truth in pageToSpread, shared with the 鑑賞 write-back)
+    const located = this.pageToSpread(pageIndex);
+    if (!located) return;
+    const { spread, side } = located;
 
     const u0 = Math.max(0, figureBox.u0 - 0.015);
     const u1 = Math.min(1, figureBox.u1 + 0.015);
@@ -1575,7 +1816,7 @@ export class MagazineScene {
       normalMap: this.paperNormal,
       normalScale: new THREE.Vector2(0.03, 0.03),
       roughnessMap: this.paperRoughness,
-      envMapIntensity: 0.32,
+      envMapIntensity: RENDER.envMap.standee,
     });
     const geometry = new THREE.PlaneGeometry(1, 1);
     this.disposables.push(geometry, material);
@@ -1691,7 +1932,7 @@ export class MagazineScene {
       map: tagTexture,
       roughness: 0.85,
       metalness: 0,
-      envMapIntensity: 0.2,
+      envMapIntensity: RENDER.envMap.swingTag,
     });
     const tagGeometry = new THREE.PlaneGeometry(0.36, 0.1266);
     this.disposables.push(tagTexture, tagMaterial, tagGeometry);
@@ -1726,6 +1967,7 @@ export class MagazineScene {
       threadGeometry,
       activeIndex: -1,
       showUntil: 0,
+      bloomUntil: 0,
     };
   }
 
@@ -1775,7 +2017,7 @@ export class MagazineScene {
     ctx.lineWidth = 4;
     ctx.stroke();
 
-    const name = textJa(item.name);
+    const name = localeText(item.name, this.locale);
     let size = 40;
     ctx.font = `${size}px 'Shippori Mincho', serif`;
     while (size > 22 && ctx.measureText(name).width > w - 110) {
@@ -1786,7 +2028,9 @@ export class MagazineScene {
     ctx.fillStyle = "rgba(30, 24, 18, 0.85)";
     ctx.fillText(name, 64, h * 0.46);
 
-    const tags = (item.tags && (item.tags.ja ?? item.tags.zh)) || [];
+    const tags =
+      (item.tags && (this.locale === "zh" ? item.tags.zh ?? item.tags.ja : item.tags.ja ?? item.tags.zh)) ||
+      [];
     ctx.font = "22px 'Shippori Mincho', serif";
     ctx.fillStyle = "rgba(30, 24, 18, 0.5)";
     ctx.fillText(tags.join("・"), 64, h * 0.78);
@@ -1797,6 +2041,10 @@ export class MagazineScene {
     const cui = standee.cui;
     const item = standee.commentary?.items?.[index];
     if (!cui || !item) return;
+    cui.bloomUntil = 0; // the user found the hotspots; stop nudging
+    // the discovery hint has done its job; let the caption own the bottom-center
+    // band rather than stacking the guidance text behind the live commentary.
+    this.fadeHint();
     cui.activeIndex = index;
     cui.showUntil = sticky ? Infinity : performance.now() + 6500;
 
@@ -1815,7 +2063,7 @@ export class MagazineScene {
     cui.thread.visible = true;
 
     this.setExpressionHint(standee, item.expression);
-    this.setCaption(textJa(item.text), textZh(item.text));
+    this.setCaption(item.text);
     this.playSound("pageTurn", { gain: 0.12, rate: 1.7 });
   }
 
@@ -1840,15 +2088,19 @@ export class MagazineScene {
   startTour(standee) {
     if (this.tour || !standee.commentary || standee.state !== "risen") return;
     this.cancelStandeeAction(standee);
+    // the tour now drives the bottom-center caption; retire the discovery hint
+    // so the two no longer overlap (it re-shows on the next rise / runway nudge).
+    this.fadeHint();
     this.tour = { standee, stage: -1, stageUntil: performance.now() + 3400 };
     if (standee.cui) {
       standee.cui.activeIndex = -1;
+      standee.cui.bloomUntil = 0;
       standee.cui.tagGroup.visible = false;
       standee.cui.thread.visible = false;
     }
     const intro = standee.commentary.intro;
     this.setExpressionHint(standee, intro?.expression);
-    this.setCaption(textJa(intro), textZh(intro));
+    this.setCaption(intro);
     this.playSound("pageTurn", { gain: 0.2, rate: 1.4 });
   }
 
@@ -1859,6 +2111,32 @@ export class MagazineScene {
     this.hideCommentary(tour.standee);
     this.hideCaption();
     tour.standee.idleAt = performance.now() + 4500 + Math.random() * 2500;
+  }
+
+  // The first risen, commentary-bearing standee on the open spread, or null.
+  // Shared by the C key, the HUD tour pill, and that pill's visibility check.
+  currentSpreadTourStandee() {
+    if (this.state !== "open" || this.show) return null;
+    for (const standee of this.standees.values()) {
+      if (
+        standee.state === "risen" &&
+        standee.spread === this.spreadIndex &&
+        standee.commentary
+      ) {
+        return standee;
+      }
+    }
+    return null;
+  }
+
+  // Toggle the guided tour for the current spread (keyboard + HUD button share this).
+  toggleTourOnCurrentSpread() {
+    if (this.tour) {
+      this.endTour();
+      return;
+    }
+    const standee = this.currentSpreadTourStandee();
+    if (standee) this.startTour(standee);
   }
 
   updateTour() {
@@ -2063,7 +2341,7 @@ export class MagazineScene {
       alphaTest: cutout ? 0.3 : 0,
       roughness: 0.78,
       metalness: 0,
-      envMapIntensity: 0.25,
+      envMapIntensity: RENDER.envMap.expression,
     });
     this.disposables.push(frameGeometry, photoGeometry, photoMaterial);
 
@@ -2201,6 +2479,24 @@ export class MagazineScene {
     this.hudHint.classList.remove("is-faded");
   }
 
+  // Once a commentary figure first finishes rising, surface the (otherwise
+  // near-invisible) outfit-commentary depth: nudge the hint toward tapping her
+  // clothes and bloom the hotspot dots so they read as live affordances. Fires
+  // once per session. The static guidance text (information) is shown for every
+  // user; only the bloom pulse (visual emphasis) is gated by reduced-motion, so
+  // accessibility users still learn the clothes are tappable.
+  maybeShowStandeeGuide(standee) {
+    if (this.standeeGuideShown) return;
+    if (!standee.cui || !standee.commentary) return;
+    this.standeeGuideShown = true;
+    this.guideStandee = standee;
+    if (!this.reducedMotion) standee.cui.bloomUntil = performance.now() + 3600;
+    if (this.hudHint) {
+      this.hudHint.textContent = "服にふれると、コーデ解説";
+      this.hudHint.classList.remove("is-faded");
+    }
+  }
+
   showRunwayHint() {
     if (!this.hudHint) return;
     this.hudHint.textContent = "彼女にふれるとランウェイ";
@@ -2218,7 +2514,7 @@ export class MagazineScene {
     this.fadeHint();
     const runwayIntro = standee.commentary?.runwayIntro;
     if (runwayIntro) {
-      this.setCaption(textJa(runwayIntro), textZh(runwayIntro));
+      this.setCaption(runwayIntro);
       window.setTimeout(() => {
         if (!this.disposed && !this.tour) this.hideCaption();
       }, 4200);
@@ -2228,6 +2524,10 @@ export class MagazineScene {
       key: this.keyLight.intensity,
       pool: this.poolLight.intensity,
       fill: this.fillLight.intensity,
+      // VIS-RIM (Sprint 6 / Iter 1): register the new rim so applyShowDim can
+      // lerp it down during runway dim and back up on restore (Scout C pitfall:
+      // "新增光源必须同步注册 lightLevels + applyShowDim").
+      rim: this.rimLight?.intensity ?? 0,
       env: this.scene.environmentIntensity,
     };
     this.show = { standee, phase: "dimming", dim: 0, fade: 0 };
@@ -2321,8 +2621,23 @@ export class MagazineScene {
     this.keyLight.intensity = L.key * (1 - 0.95 * eased);
     this.poolLight.intensity = L.pool * (1 - 0.78 * eased);
     this.fillLight.intensity = L.fill * (1 - eased);
+    // VIS-RIM (Sprint 6 / Iter 1): rim follows the same ~95% dim curve as key
+    // (rim is the back-half of the same dramatic light shape — runway should
+    // suppress it nearly fully so the video stage reads as the only light).
+    if (this.rimLight) this.rimLight.intensity = L.rim * (1 - 0.95 * eased);
     this.scene.environmentIntensity = L.env * (1 - 0.97 * eased);
-    if (this.grainPass) this.grainPass.uniforms.uVignette.value = 0.48 + 0.3 * eased;
+    // VIS-GRAIN (Sprint 6 / Iter 1): base vignette dropped 0.48→0.32 (Evo+Res
+    // two votes, "0.48 too cinematic dark, flat-lay photo norm 0.1-0.2"). Keep
+    // the runway lerp delta (+0.3) so the show still pulls inward.
+    // VIS-VIGNETTE-RIM (Sprint 6 / Iter 2): 0.32 → 0.20 — kept in lockstep
+    // with GrainShader default (must be identical; otherwise show entry jumps
+    // the base by one step). Runway delta +0.3 unchanged.
+    // TECH-1 (Sprint 6 / Iter 3): both base and delta now from render-config,
+    // so this site and the GrainShader default read the same constant —
+    // silent desync is physically impossible.
+    if (this.grainPass)
+      this.grainPass.uniforms.uVignette.value =
+        RENDER.grain.vignette + RENDER.grain.runwayDelta * eased;
   }
 
   updateShow(delta) {
@@ -2414,6 +2729,7 @@ export class MagazineScene {
           } else {
             standee.state = "risen";
             standee.idleAt = performance.now() + 4500 + Math.random() * 2500;
+            this.maybeShowStandeeGuide(standee);
           }
         }
       }
@@ -2456,12 +2772,19 @@ export class MagazineScene {
           standee.poseIndex < 0 &&
           !standee.flip &&
           (!this.show || this.show.standee !== standee);
+        // discovery bloom: just after she rises, the dots swell once and ease
+        // back, so the tap-for-commentary affordance can't be missed (DISC-1).
+        const bloomLeft = cui.bloomUntil - performance.now();
+        const bloom = bloomLeft > 0 ? bloomLeft / 3600 : 0;
         for (let i = 0; i < cui.hotspots.length; i += 1) {
           const dot = cui.hotspots[i];
           dot.visible = showDots;
           if (!showDots) continue;
           const pulse = this.reducedMotion ? 1 : 1 + Math.sin(elapsed * 2.6 + i * 1.3) * 0.12;
-          dot.scale.setScalar(cui.activeIndex === i ? 1.6 : pulse);
+          // staggered ramp so the dots open like a fan rather than all at once
+          const stagger = Math.max(0, bloom - i * 0.08);
+          const bloomScale = 1 + stagger * 1.3 * (0.7 + 0.3 * Math.sin(elapsed * 7 + i));
+          dot.scale.setScalar(cui.activeIndex === i ? 1.6 : pulse * bloomScale);
         }
         if (!showDots && cui.activeIndex >= 0) {
           this.hideCommentary(standee);
@@ -2609,6 +2932,27 @@ export class MagazineScene {
     this.syncHud();
   }
 
+  // The settled-closed (front cover laid flat) invariants, mirroring the close
+  // animation's completion end pose (updateAnimation close branch). Lands the
+  // 鑑賞 write-back when the reader exits on the cover entry. The right-stack x
+  // is reset too, in case the magazine was last in closedBack (which displaces
+  // it to -PAGE_WIDTH/2) — without this the closed cover would inherit a stray
+  // right-stack offset.
+  enterClosedCover() {
+    this.spreadIndex = 0;
+    this.applySpread();
+    this.coverHinge.rotation.z = 0;
+    this.coverHinge.position.y = COVER_Y;
+    this.rightBlock.visible = true;
+    this.rightBlock.position.x = PAGE_WIDTH / 2;
+    this.rightPage.visible = false;
+    this.leftPage.visible = true;
+    this.leftBlock.visible = false;
+    this.state = "closed";
+    this.firstTurnDone = false;
+    this.syncHud();
+  }
+
   finishTurn() {
     const { to } = this.turn.settle;
     const { kind, direction, targetSpread } = this.turn;
@@ -2626,6 +2970,7 @@ export class MagazineScene {
         this.applySpread();
         this.state = "open";
         this.syncHud();
+        this.recordSpread();
       }
       return;
     }
@@ -2638,6 +2983,7 @@ export class MagazineScene {
     this.applySpread();
     this.state = "open";
     this.syncHud();
+    this.recordSpread();
   }
 
   updateTurn(now, delta) {
@@ -2720,6 +3066,9 @@ export class MagazineScene {
         this.state = "open";
         this.syncHud();
         this.maybeShowStandeeHint();
+        // the cinematic intro has now played in full → future visits skip it
+        this.markGuided();
+        this.recordSpread();
       }
       return;
     }
@@ -2905,6 +3254,15 @@ export class MagazineScene {
       <div class="hud-masthead hud-item">
         <div class="hud-masthead-title">ATELIER</div>
         <div class="hud-masthead-sub">MAY 2026 ・ VOL.08</div>
+        <div class="hud-character" hidden>
+          <span class="hud-character-name"></span>
+          <span class="hud-character-intro"></span>
+        </div>
+        <div class="hud-masthead-actions">
+          <button class="hud-locale" type="button" aria-label="表示言語を切り替える"><span class="loc-ja">日本語</span><span class="loc-sep"> / </span><span class="loc-zh">中文</span></button>
+          <button class="hud-card" type="button" aria-label="このコーデの解説カードをひらく" hidden>コーデを読む</button>
+          <button class="hud-share" type="button" aria-label="このページのリンクをコピー">リンクを共有</button>
+        </div>
       </div>
       <div class="hud-feature hud-item">特集・白と海軍紺の構造美</div>
       <div class="hud-status hud-item">
@@ -2912,6 +3270,7 @@ export class MagazineScene {
         <div class="hud-rule"></div>
         <div class="hud-hint">クリックして表紙をひらく</div>
         <button class="hud-read" type="button" aria-label="誌面を拡大して読む">鑑賞モード</button>
+        <button class="hud-tour" type="button" aria-label="コーデ解説をめぐる" hidden>コーデ解説をめぐる</button>
       </div>
       <div class="hud-keys hud-item">WASD・視点　QE・回転　R・リセット　F・ポーズ　C・解説　SPACE・鑑賞</div>
       <div class="hud-touch hud-item">ドラッグ・めくる　タップ・立たせる</div>
@@ -2924,6 +3283,12 @@ export class MagazineScene {
     this.hudPage = this.hud.querySelector(".hud-page");
     this.hudHint = this.hud.querySelector(".hud-hint");
     this.hudCaption = this.hud.querySelector(".hud-caption");
+    // C8 masthead-follow references (updated per-frame in syncMasthead)
+    this.hudMastheadSub = this.hud.querySelector(".hud-masthead-sub");
+    this.hudCharacter = this.hud.querySelector(".hud-character");
+    this.hudCharacterName = this.hud.querySelector(".hud-character-name");
+    this.hudCharacterIntro = this.hud.querySelector(".hud-character-intro");
+    this.mastheadCharacterKey = null; // diff guard: "spread:locale" of last render
 
     // Tappable entry into the reading (鑑賞) overlay so touch devices, which
     // have no Space key, can still zoom a page. stopPropagation keeps the tap
@@ -2934,6 +3299,65 @@ export class MagazineScene {
       this.hudRead.addEventListener("click", (event) => {
         event.stopPropagation();
         this.toggleGallery();
+      });
+    }
+
+    // Touch path into the guided commentary tour (C key was the only entry).
+    // Shown only when the open spread has a risen, commentary-bearing figure;
+    // stopPropagation keeps the tap off the canvas raycast, as with hud-read.
+    this.hudTour = this.hud.querySelector(".hud-tour");
+    if (this.hudTour) {
+      this.hudTour.addEventListener("pointerdown", (event) => event.stopPropagation());
+      this.hudTour.addEventListener("click", (event) => {
+        event.stopPropagation();
+        this.toggleTourOnCurrentSpread();
+      });
+    }
+
+    // Locale toggle: flips the primary display language (ja ⇄ zh) and persists
+    // it. stopPropagation keeps the tap off the canvas raycast, as with the
+    // other HUD buttons. Lives in the masthead corner, clear of the bottom HUD.
+    this.hudLocale = this.hud.querySelector(".hud-locale");
+    if (this.hudLocale) {
+      this.hudLocale.addEventListener("pointerdown", (event) => event.stopPropagation());
+      this.hudLocale.addEventListener("click", (event) => {
+        event.stopPropagation();
+        this.setLocale(this.locale === "ja" ? "zh" : "ja");
+      });
+      this.syncLocaleButton();
+    }
+
+    // Share entry (E5): copies a deep link to the current spread + locale to the
+    // clipboard. Lives in the masthead corner beside the locale toggle, clear of
+    // the already-crowded bottom HUD. stopPropagation keeps the tap off the
+    // canvas raycast, as with the other HUD buttons.
+    this.hudShare = this.hud.querySelector(".hud-share");
+    if (this.hudShare) {
+      this.hudShare.addEventListener("pointerdown", (event) => event.stopPropagation());
+      this.hudShare.addEventListener("click", (event) => {
+        event.stopPropagation();
+        this.copyShareLink();
+      });
+    }
+
+    // CARD-1: the look-card entry. Shown only on spreads that carry a commentary
+    // character (guard reads the same module-level spread→commentary index the
+    // card reads — one source, two readers, never this.standees), so cover /
+    // colophon / back / figure-less interiors never offer an empty card. Same
+    // quiet pill + stopPropagation pattern as the share/locale buttons.
+    this.hudCard = this.hud.querySelector(".hud-card");
+    if (this.hudCard) {
+      this.hudCard.addEventListener("pointerdown", (event) => event.stopPropagation());
+      this.hudCard.addEventListener("click", (event) => {
+        event.stopPropagation();
+        // RACE-B-#2 (Sprint 6 / Iter 4): end any active tour first, same
+        // pattern as toggleGallery (`if (this.tour) this.endTour()` at the
+        // gallery entry point). Without this, the tour script keeps
+        // advancing in the background while the card overlay is up — its
+        // subtitle ticks and reveal beats would clobber the card without
+        // the user seeing the tour ever ran.
+        if (this.tour) this.endTour();
+        this.openLookCard();
       });
     }
 
@@ -2984,19 +3408,556 @@ export class MagazineScene {
     }
   }
 
-  setCaption(ja, zh) {
+  // HUD has no reactive framework, so the tour pill is shown/hidden by hand each
+  // frame: visible only when the open spread has a risen, commentary-bearing
+  // figure and we are neither touring, showing the runway, nor in 鑑賞.
+  syncTourButton() {
+    if (!this.hudTour) return;
+    const available = !this.tour && !this.gallery && !!this.currentSpreadTourStandee();
+    if (this.hudTour.hidden === !available) return;
+    this.hudTour.hidden = !available;
+  }
+
+  // Mark which language the locale toggle currently shows (used for styling the
+  // active side) and keep its aria state honest.
+  syncLocaleButton() {
+    if (!this.hudLocale) return;
+    this.hudLocale.dataset.locale = this.locale;
+    this.hudLocale.setAttribute(
+      "aria-label",
+      this.locale === "ja" ? "中国語に切り替える" : "切换为日文",
+    );
+  }
+
+  // The commentary character shown on the current open spread, or null. Unlike
+  // currentSpreadTourStandee this does not require the figure to be risen — the
+  // masthead reflects "whose spread this is" regardless of interaction state.
+  currentSpreadCharacter() {
+    if (this.state !== "open" || this.show) return null;
+    for (const standee of this.standees.values()) {
+      if (standee.spread === this.spreadIndex && standee.commentary?.character) {
+        return standee.commentary.character;
+      }
+    }
+    return null;
+  }
+
+  // C8: the masthead subtitle follows the current spread's character (in the
+  // active locale), exposing the otherwise-hidden bilingual person metadata.
+  // Spreads without a commentary figure fall back to the fixed issue line, and
+  // nothing of the previous character is left behind. Diff-guarded by a
+  // "spread:locale:has-character" key so it only writes the DOM on real change.
+  syncMasthead(force = false) {
+    if (!this.hudMastheadSub || !this.hudCharacter) return;
+    const character = this.currentSpreadCharacter();
+    const key = `${this.spreadIndex}:${this.locale}:${character ? "1" : "0"}:${this.state}`;
+    if (!force && this.mastheadCharacterKey === key) return;
+    this.mastheadCharacterKey = key;
+
+    if (character) {
+      this.hudMastheadSub.hidden = true;
+      this.hudCharacter.hidden = false;
+      if (this.hudCharacterName) {
+        this.hudCharacterName.textContent = localeText(character.name, this.locale);
+      }
+      if (this.hudCharacterIntro) {
+        this.hudCharacterIntro.textContent = localeText(character.intro, this.locale);
+      }
+    } else {
+      this.hudCharacter.hidden = true;
+      this.hudMastheadSub.hidden = false;
+    }
+    this.syncCardEntry();
+  }
+
+  // CARD-1 entry guard: show the "コーデを読む" pill only when the open spread
+  // carries a commentary character. The predicate reads the module-level
+  // spread→commentary index (NOT this.standees / currentSpreadCharacter — same
+  // R-CARD-DATASOURCE red line as the card data), so cover / colophon / back /
+  // figure-less interiors never offer an empty card, and the guard never lags a
+  // standee build. Rides syncMasthead's per-frame diff-guard rhythm (only the DOM
+  // write here is cheap and idempotent).
+  syncCardEntry() {
+    if (!this.hudCard) return;
+    const onSpread =
+      this.state === "open" &&
+      !this.show &&
+      spreadHasCommentary(this.spreadCommentaryIndex(), this.spreadIndex);
+    if (this.hudCard.hidden === !onSpread) return;
+    this.hudCard.hidden = !onSpread;
+  }
+
+  // Show a bilingual {ja,zh} field as a single-locale caption (default ja).
+  // The source field is remembered so a locale switch re-renders the live
+  // caption rather than leaving it in the old language (half-switch). The
+  // secondary line is cleared: we now show one language, not both stacked.
+  setCaption(field) {
     if (!this.hudCaption) return;
-    this.hudCaption.querySelector(".cap-ja").textContent = ja;
-    this.hudCaption.querySelector(".cap-zh").textContent = zh;
+    this.captionField = field;
+    this.hudCaption.querySelector(".cap-ja").textContent = localeText(field, this.locale);
+    this.hudCaption.querySelector(".cap-zh").textContent = "";
     this.hudCaption.classList.add("is-on");
   }
 
   hideCaption() {
+    this.captionField = null;
     this.hudCaption?.classList.remove("is-on");
+  }
+
+  // Switch the display language and re-render every locale-bound surface at once
+  // so there is no half-switch state (caption in zh while the swing tag is still
+  // ja). Covers: the live caption, every visible swing tag (drawn into a canvas
+  // texture), the masthead, and the locale toggle label. Persisted via C6.
+  setLocale(locale, { persist = true } = {}) {
+    if (locale !== "ja" && locale !== "zh") return;
+    if (locale === this.locale) return;
+    this.locale = locale;
+    // persist:false is for deep-link recovery — applying a shared link's
+    // language must not overwrite the visitor's own stored preference (E5 red
+    // line). The user's own toggle persists; opening someone else's link does not.
+    if (persist) this.prefs = savePreferences({ locale });
+
+    // live caption: re-render from the remembered source field
+    if (this.captionField && this.hudCaption?.classList.contains("is-on")) {
+      this.hudCaption.querySelector(".cap-ja").textContent = localeText(
+        this.captionField,
+        this.locale,
+      );
+    }
+
+    // swing tags: any standee currently showing an item has a baked-in canvas
+    // tag in the old language; redraw it so the figure's tag matches the caption
+    for (const standee of this.standees.values()) {
+      const cui = standee.cui;
+      if (cui && cui.activeIndex >= 0 && cui.tagGroup?.visible) {
+        const item = standee.commentary?.items?.[cui.activeIndex];
+        if (item) this.drawTag(standee, item);
+      }
+    }
+
+    this.syncLocaleButton();
+    this.syncMasthead(true); // force re-render the masthead in the new language
+
+    // CARD-1 per-locale red line: a card open while the language flips must
+    // re-render its fields immediately (title/intro/items/tags), so the card is
+    // the first detail surface that switches language live — no half-switch.
+    if (this.lookCard) this.renderLookCard();
   }
 
   fadeHint() {
     this.hudHint?.classList.add("is-faded");
+  }
+
+  // --- Session continuity (C9 skip-intro) -------------------------------------
+
+  // Remember the spread the reader settled on, so a later visit can land back
+  // here. Cheap and diff-guarded; called from the settle points (open / turn).
+  recordSpread() {
+    if (this.prefs.lastSpread === this.spreadIndex) return;
+    this.prefs = savePreferences({ lastSpread: this.spreadIndex });
+  }
+
+  // The cinematic intro has now played through at least once: mark the visitor
+  // as guided so the next visit skips straight to their last spread.
+  markGuided() {
+    if (this.prefs.guidedOnce && this.prefs.skipIntro) return;
+    this.prefs = savePreferences({ guidedOnce: true, skipIntro: true });
+  }
+
+  // Shared "land on a settled-open spread" kernel. The geometry/material/
+  // visibility invariants live here once, so returning-visit restore (C9), the
+  // 鑑賞 write-back (D2) and deep-link recovery (E5) all settle through the same
+  // path instead of three drifting copies. Built from the canonical settled-open
+  // helpers (restoreStacks + applySpread) plus the cover-hinge end pose that
+  // updateAnimation's open completion sets, so it matches a normal intro finish.
+  //
+  // Options:
+  // - persist (default true): write the landed spread back to lastSpread (C6).
+  //   Returning-visit restore and the user's own 鑑賞 browsing persist; opening
+  //   someone else's deep link lands but does NOT (persist:false) so it never
+  //   clobbers the visitor's own progress.
+  // - snapCamera (default false): hard-cut the camera to the open framing,
+  //   skipping the cinematic intro pan (used by the cold-start restore path).
+  landOnSpread(spreadIndex, { persist = true, snapCamera = false } = {}) {
+    // clamp into the valid range so a stale/out-of-range index can never throw
+    const maxSpread = this.leafCount();
+    this.spreadIndex = Math.min(Math.max(0, Math.trunc(spreadIndex) || 0), maxSpread);
+
+    // cover laid fully open (mirrors updateAnimation open-completion end pose)
+    this.coverHinge.rotation.z = Math.PI;
+    this.coverHinge.position.y = COVER_OPEN_Y;
+
+    // canonical settled-open invariants: page visibility/stacks + materials
+    this.restoreStacks();
+    this.applySpread();
+    this.state = "open";
+
+    if (snapCamera) {
+      // skip the 4.2s camera intro and snap to the open framing so we don't pan in
+      this.introComplete = true;
+      this.introProgress = 1;
+      const open = this.applyResponsiveCamera(this.cameraOpen, this.responsiveCameraDesired);
+      this.camera.position.copy(open);
+      this.cameraTarget.copy(this.applyResponsiveTarget(this.desiredTargetWork.copy(this.targetOpen)));
+      this.camera.lookAt(this.cameraTarget);
+    }
+
+    this.firstTurnDone = this.spreadIndex > 0; // past the first turn already
+    this.syncHud();
+    this.syncMasthead(true);
+    if (persist) this.recordSpread();
+    return this.spreadIndex;
+  }
+
+  // On a returning visit (intro already seen), skip the cinematic open and land
+  // directly in the settled-open state at the last-read spread. Delegates the
+  // geometry to the shared landOnSpread kernel (persist+snapCamera) so the
+  // settled-open invariants match a normal intro finish exactly — no hand-rolled
+  // state that could drift (errant standees, wrong materials).
+  restoreSession() {
+    if (!this.prefs.guidedOnce || !this.prefs.skipIntro) return false;
+    // persist:true is a no-op here (the value already equals lastSpread), but
+    // keeps the path honest as "the visitor's own settled position".
+    this.landOnSpread(this.prefs.lastSpread, { persist: true, snapCamera: true });
+    return true;
+  }
+
+  // --- Deep links (E5) --------------------------------------------------------
+
+  // Open a shared link in the encoded state: land on its spread and apply its
+  // language, WITHOUT touching the visitor's own persisted progress or locale
+  // (persist:false everywhere). Returns true if it consumed a spread (so the
+  // caller can skip restoreSession — the link wins over the local last-spread).
+  // A link carrying only a language still applies it temporarily but lets the
+  // normal spread restore run. Out-of-range/garbage params resolve to null in
+  // the codec and are simply ignored (landOnSpread also clamps defensively).
+  applyDeepLink() {
+    const search = typeof window !== "undefined" ? window.location?.search ?? "" : "";
+    const state = parseDeepLink(search);
+    if (!hasDeepLinkState(state)) return false;
+
+    // temporary language: applied to the live surfaces but not persisted
+    if (state.locale && state.locale !== this.locale) {
+      this.setLocale(state.locale, { persist: false });
+    }
+
+    if (state.spread !== null) {
+      // temporary spread: lands but never writes lastSpread
+      const landed = this.landOnSpread(state.spread, { persist: false, snapCamera: true });
+      // CODEC-1 + CARD-1: a nested item opens the look card directly on the landed
+      // spread. Data comes from the module-level index (NOT this.standees), so the
+      // card has content even though loadStandees has not built any figure yet
+      // (the cold-start race this red line exists to defeat). An out-of-range item
+      // is ignored — isItemInRange returns false → land the whole spread, open NO
+      // empty card. Card/item state is temporary and never persisted.
+      if (
+        state.item !== null &&
+        isItemInRange(this.spreadCommentaryIndex(), landed, state.item)
+      ) {
+        this.openLookCard(landed, state.item);
+      }
+      return true;
+    }
+    return false;
+  }
+
+  // The current reading state as a shareable absolute URL (spread + locale),
+  // built off a clean origin+path (no inherited query/hash). closed/closedBack
+  // encode as spread 0 / final spread so the recipient lands somewhere valid.
+  currentShareUrl() {
+    const base =
+      typeof window !== "undefined" && window.location
+        ? `${window.location.origin}${window.location.pathname}`
+        : "";
+    let spread = this.spreadIndex;
+    if (this.state === "closed" || this.state === "closing") spread = 0;
+    else if (this.state === "closedBack") spread = this.leafCount();
+    // CODEC-1: when a look card is open on this very spread, the share link
+    // carries its item so "share this look" lands the recipient on the same card.
+    // The card only opens on the current open spread, so the item rides this
+    // spread (nested contract); buildShareUrl drops the item if spread is null.
+    let item = null;
+    if (this.lookCard && this.lookCard.spread === spread) {
+      item = Number.isInteger(this.lookCard.item) ? this.lookCard.item : null;
+    }
+    return buildShareUrl(base, { spread, locale: this.locale, item });
+  }
+
+  // Copy the current share URL to the clipboard and flash a short confirmation
+  // on the button. Falls back to a legacy execCommand copy where the async
+  // Clipboard API is unavailable (insecure context / older browser); if even
+  // that fails the link is still surfaced so nothing is silently lost.
+  copyShareLink() {
+    const url = this.currentShareUrl();
+    const flash = (ok) => {
+      if (!this.hudShare) return;
+      this.hudShare.classList.add(ok ? "is-copied" : "is-failed");
+      this.hudShare.textContent = ok ? "コピーしました" : "コピー失敗";
+      window.clearTimeout(this.shareFlashTimer);
+      this.shareFlashTimer = window.setTimeout(() => {
+        if (this.disposed || !this.hudShare) return;
+        this.hudShare.classList.remove("is-copied", "is-failed");
+        this.hudShare.textContent = "リンクを共有";
+      }, 1600);
+    };
+
+    const legacyCopy = () => {
+      try {
+        const ta = document.createElement("textarea");
+        ta.value = url;
+        ta.setAttribute("readonly", "");
+        ta.style.position = "fixed";
+        ta.style.opacity = "0";
+        document.body.appendChild(ta);
+        ta.select();
+        const ok = document.execCommand("copy");
+        document.body.removeChild(ta);
+        return ok;
+      } catch {
+        return false;
+      }
+    };
+
+    if (navigator.clipboard?.writeText) {
+      navigator.clipboard.writeText(url).then(
+        () => flash(true),
+        () => flash(legacyCopy()),
+      );
+    } else {
+      flash(legacyCopy());
+    }
+  }
+
+  // --- Look card (CARD-1) -----------------------------------------------------
+
+  // Open the look card for a spread (defaults to the current open spread). The
+  // card is a paper "magazine feature page" that parasitizes the 鑑賞 overlay
+  // shell (its own absolute layer, z-index above the canvas) — it never draws
+  // over the 3D scene as a second canvas-covering layer, and it is mutually
+  // exclusive with the flipbook (closing one before opening the other). Data
+  // comes from the module-level spread→commentary index (R-CARD-DATASOURCE), so
+  // a deep-link cold open (`?spread=N&item=M`, standees not yet built) still has
+  // data. `item` highlights one look (clamped/ignored when out of range — no
+  // empty card). Card/item state is screen-only and NEVER persisted to C6.
+  openLookCard(spread = this.spreadIndex, item = null) {
+    if (typeof spread !== "number" || !Number.isFinite(spread)) return false;
+    // RACE-B-#1/#4 (Sprint 6 / Iter 4): refuse to open while a runway show
+    // is playing or a page turn is in flight. A deep-link `?spread=N&item=M`
+    // arriving mid-show used to layer the card overlay on top of a dimmed
+    // scene; mid-turn it would land the card on a stale spreadIndex and the
+    // `finishTurn` continuation would clobber it. Cheap state guard, no
+    // user-visible regression (these windows are sub-second).
+    if (this.show) return false;
+    if (this.turn) return false;
+    // a card and the flipbook are mutually exclusive — never both on screen.
+    if (this.gallery) this.closeGallery();
+    // guard: no commentary on this spread → no card (defense in depth; the entry
+    // pill is already hidden, but a deep link could ask for an empty spread).
+    if (!spreadHasCommentary(this.spreadCommentaryIndex(), spread)) return false;
+
+    const activeItem =
+      isItemInRange(this.spreadCommentaryIndex(), spread, item) ? item : null;
+
+    if (this.lookCard) {
+      // already open — just retarget (e.g. a deep link or a re-open).
+      this.lookCard.spread = spread;
+      this.lookCard.item = activeItem;
+      this.renderLookCard();
+      return true;
+    }
+
+    const el = document.createElement("div");
+    el.className = "look-card";
+    el.innerHTML = `
+      <div class="look-card-sheet" role="dialog" aria-modal="true" aria-label="コーデ解説カード">
+        <button class="look-card-close" type="button" aria-label="カードを閉じる">✕</button>
+        <div class="look-card-scroll">
+          <header class="look-card-head">
+            <div class="look-card-kicker">ATELIER ・ コーデ特集</div>
+            <h2 class="look-card-title"></h2>
+            <div class="look-card-person">
+              <div class="look-card-name"></div>
+              <p class="look-card-intro"></p>
+            </div>
+          </header>
+          <div class="look-card-runway"></div>
+          <ol class="look-card-items" role="list"></ol>
+          <div class="look-card-actions">
+            <button class="look-card-backlink" type="button">誌面でこのページを見る</button>
+            <button class="look-card-share" type="button" aria-label="このコーデのリンクをコピー">リンクを共有</button>
+          </div>
+        </div>
+      </div>
+    `;
+    this.container.appendChild(el);
+
+    // stopPropagation on the sheet keeps taps off the canvas raycast (turning the
+    // page) while the card is up; the dark scrim closes the card on a tap.
+    const sheet = el.querySelector(".look-card-sheet");
+    sheet.addEventListener("pointerdown", (event) => event.stopPropagation());
+    el.addEventListener("pointerdown", (event) => event.stopPropagation());
+    el.addEventListener("click", (event) => {
+      // a click on the scrim (not the sheet) closes the card.
+      if (event.target === el) this.closeLookCard();
+    });
+    el.querySelector(".look-card-close").addEventListener("click", (event) => {
+      event.stopPropagation();
+      this.closeLookCard();
+    });
+    // BACKLINK (R-CARD-BACKLINK): "see this page in the magazine" — close the
+    // card and land the 3D magazine on this spread via the shared landOnSpread
+    // kernel (persist:false — a card visit must never write the deep-link/temp
+    // state into the visitor's own progress), so the card is never a dead end.
+    el.querySelector(".look-card-backlink").addEventListener("click", (event) => {
+      event.stopPropagation();
+      const target = this.lookCard ? this.lookCard.spread : spread;
+      this.closeLookCard();
+      this.landOnSpread(target, { persist: false });
+    });
+    el.querySelector(".look-card-share").addEventListener("click", (event) => {
+      event.stopPropagation();
+      this.copyLookCardLink(event.currentTarget);
+    });
+
+    this.lookCard = { el, sheet, spread, item: activeItem };
+    this.renderLookCard();
+
+    // reduced-motion: appear at once (mirror the G1 / gallery guard); otherwise
+    // the .is-on class drives the CSS fade. setTimeout (not rAF) so the fade-in
+    // still runs if the tab is backgrounded.
+    if (this.reducedMotion) {
+      el.classList.add("is-on");
+    } else {
+      window.setTimeout(() => {
+        if (this.lookCard && this.lookCard.el === el) el.classList.add("is-on");
+      }, 20);
+    }
+    return true;
+  }
+
+  // Render (or re-render) the open card's fields in the active locale. Called on
+  // open, on retarget, and from setLocale — so the card is the first detail
+  // surface that truly switches language live, with no half-switch state.
+  renderLookCard() {
+    const card = this.lookCard;
+    if (!card) return;
+    const vm = buildCardViewModel(
+      this.spreadCommentaryIndex(),
+      card.spread,
+      this.locale,
+      card.item,
+    );
+    if (!vm) {
+      // a spread lost its commentary (should not happen) — close rather than
+      // leave a blank card up.
+      this.closeLookCard();
+      return;
+    }
+    const { el } = card;
+    const q = (sel) => el.querySelector(sel);
+    q(".look-card-title").textContent = vm.title;
+    q(".look-card-name").textContent = vm.character.name;
+    q(".look-card-intro").textContent = vm.character.intro;
+    const runway = q(".look-card-runway");
+    if (vm.runwayIntro) {
+      runway.textContent = vm.runwayIntro;
+      runway.hidden = false;
+    } else {
+      runway.hidden = true;
+    }
+
+    const list = q(".look-card-items");
+    list.innerHTML = "";
+    vm.items.forEach((item, i) => {
+      const li = document.createElement("li");
+      li.className = "look-card-item";
+      li.setAttribute("role", "listitem");
+      if (i === vm.activeItem) li.classList.add("is-active");
+      const tags = item.tags.length
+        ? `<div class="look-card-tags">${item.tags
+            .map((t) => `<span>${this.escapeHtml(t)}</span>`)
+            .join("")}</div>`
+        : "";
+      li.innerHTML = `
+        <div class="look-card-item-head">
+          <span class="look-card-item-no">${String(i + 1).padStart(2, "0")}</span>
+          <span class="look-card-item-name">${this.escapeHtml(item.name)}</span>
+          <span class="look-card-item-part">${this.escapeHtml(item.part)}</span>
+        </div>
+        ${tags}
+        <p class="look-card-item-text">${this.escapeHtml(item.text)}</p>
+      `;
+      list.appendChild(li);
+    });
+
+    // keep the active item in view when a deep link targets one.
+    if (this.reducedMotion === false && Number.isInteger(vm.activeItem)) {
+      const activeEl = list.querySelector(".look-card-item.is-active");
+      activeEl?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+    }
+  }
+
+  // Minimal HTML-escape for the commentary strings injected into the card markup
+  // (commentary is bundled authored content, but escaping keeps the markup robust
+  // and avoids any stray `<`/`&` breaking the layout).
+  escapeHtml(value) {
+    return String(value ?? "")
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;");
+  }
+
+  closeLookCard() {
+    const card = this.lookCard;
+    if (!card) return;
+    this.lookCard = null;
+    card.el.classList.remove("is-on");
+    if (this.reducedMotion) {
+      card.el.remove();
+    } else {
+      window.setTimeout(() => card.el.remove(), 320);
+    }
+  }
+
+  // Copy the share link for the open card (spread + item + locale) and flash a
+  // brief confirmation on the card's own share button, mirroring copyShareLink.
+  copyLookCardLink(button) {
+    const url = this.currentShareUrl();
+    const flash = (ok) => {
+      if (!button) return;
+      button.classList.add(ok ? "is-copied" : "is-failed");
+      button.textContent = ok ? "コピーしました" : "コピー失敗";
+      window.clearTimeout(this.cardShareFlashTimer);
+      this.cardShareFlashTimer = window.setTimeout(() => {
+        if (this.disposed || !button.isConnected) return;
+        button.classList.remove("is-copied", "is-failed");
+        button.textContent = "リンクを共有";
+      }, 1600);
+    };
+    const legacyCopy = () => {
+      try {
+        const ta = document.createElement("textarea");
+        ta.value = url;
+        ta.setAttribute("readonly", "");
+        ta.style.position = "fixed";
+        ta.style.opacity = "0";
+        document.body.appendChild(ta);
+        ta.select();
+        const ok = document.execCommand("copy");
+        document.body.removeChild(ta);
+        return ok;
+      } catch {
+        return false;
+      }
+    };
+    if (navigator.clipboard?.writeText) {
+      navigator.clipboard.writeText(url).then(
+        () => flash(true),
+        () => flash(legacyCopy()),
+      );
+    } else {
+      flash(legacyCopy());
+    }
   }
 
   // --- Colophon (inside of the back cover) ------------------------------------
@@ -3056,7 +4017,7 @@ export class MagazineScene {
         normalScale: new THREE.Vector2(0.1, 0.1),
         roughnessMap: this.paperRoughness,
         aoMap: this.paperAo,
-        envMapIntensity: 0.2,
+        envMapIntensity: RENDER.envMap.colophon,
       });
       this.disposables.push(this.colophonMaterial);
       if (this.assetsReady && (this.state === "open" || this.state === "closed")) {
@@ -3137,6 +4098,10 @@ export class MagazineScene {
     window.addEventListener("keydown", this.handleKeyDown);
     window.addEventListener("keyup", this.handleKeyUp);
     window.addEventListener("blur", this.handleWindowBlur);
+    // BUG-QUALITY-STUCK (b): tab-restore must reset adaptive quality state.
+    if (typeof document !== "undefined") {
+      document.addEventListener("visibilitychange", this.handleVisibilityChange);
+    }
   }
 
   // --- Keyboard -------------------------------------------------------------
@@ -3144,16 +4109,37 @@ export class MagazineScene {
   handleKeyDown(event) {
     if (!this.assetsReady) return;
 
+    // CARD-1: while the look card is up it owns the keyboard — Esc / Space close
+    // it (returning to the 3D view in its current settle, nothing 3D changes) and
+    // every other key is swallowed so it can't flip the page underneath the card.
+    if (this.lookCard) {
+      if (event.code === "Escape" || event.code === "Space") {
+        event.preventDefault();
+        if (!event.repeat) this.closeLookCard();
+      }
+      return;
+    }
+
     if (event.code === "Space") {
       event.preventDefault();
+      // Inside 鑑賞 with the table of contents open, Space closes the grid back to
+      // the book (a layer-at-a-time dismiss) instead of leaving 鑑賞 outright.
+      if (this.gallery?.tocOpen) {
+        if (!event.repeat) this.gallery.setToc?.(false);
+        return;
+      }
       if (!event.repeat) this.toggleGallery();
       return;
     }
     if (event.code === "Escape") {
-      if (this.gallery) this.closeGallery();
+      if (this.gallery?.tocOpen) this.gallery.setToc?.(false);
+      else if (this.gallery) this.closeGallery();
       return;
     }
     if (this.gallery) {
+      // The table of contents owns the keyboard while it is open: don't let arrow
+      // keys flip the book underneath the grid.
+      if (this.gallery.tocOpen) return;
       if (event.code === "ArrowRight" || event.code === "ArrowDown") this.galleryFlip(1);
       else if (event.code === "ArrowLeft" || event.code === "ArrowUp") this.galleryFlip(-1);
       return;
@@ -3169,20 +4155,7 @@ export class MagazineScene {
     } else if (event.code === "KeyF" && !event.repeat) {
       this.flipRisenPoses();
     } else if (event.code === "KeyC" && !event.repeat) {
-      if (this.tour) {
-        this.endTour();
-      } else if (this.state === "open" && !this.show) {
-        for (const standee of this.standees.values()) {
-          if (
-            standee.state === "risen" &&
-            standee.spread === this.spreadIndex &&
-            standee.commentary
-          ) {
-            this.startTour(standee);
-            break;
-          }
-        }
-      }
+      this.toggleTourOnCurrentSpread();
     }
   }
 
@@ -3246,6 +4219,12 @@ export class MagazineScene {
       return;
     }
     if (this.show) return;
+    // RACE-B-#3 (Sprint 6 / Iter 4): mirror openLookCard's `if (this.gallery)
+    // this.closeGallery()` — the card and the flipbook are mutually exclusive
+    // overlays (styles.css z-index 8 vs gallery 7) and the card's
+    // `handleKeyDown` already swallows Space/Esc when open, so a stale card
+    // would intercept the gallery keyboard nav until manually dismissed.
+    if (this.lookCard) this.closeLookCard();
     if (this.state !== "open" && this.state !== "closed" && this.state !== "closedBack") return;
     // Build the whole-issue page list once and open on the page in view; the
     // ‹ › controls then walk the entire magazine, not just the current spread.
@@ -3255,6 +4234,19 @@ export class MagazineScene {
     const info = entries[startIndex];
     if (!info) return;
     if (this.tour) this.endTour();
+    // BUG-GALLERY-RACE-A (Sprint 6 / Iter 2): cancel any in-flight turn before
+    // entering the gallery overlay. animate() short-circuits while gallery is
+    // up, so a stale settle would not be advanced — but the very first frame
+    // after closeGallery would see raw >= 1 and finishTurn() would clobber
+    // spreadIndex with turn.targetSpread, overwriting whatever applyGallery-
+    // Landing just wrote. Apply the same 4-piece reset finishTurn uses (see
+    // finishTurn at ~2854), pre-cancel instead of post-settle.
+    if (this.turn) {
+      this.turn = null;
+      this.turningPage.visible = false;
+      this.turningPage.rotation.z = 0;
+      this.turningPage.position.y = TURN_BASE_Y;
+    }
     this.clearPeel();
     this.keys.clear();
 
@@ -3264,9 +4256,13 @@ export class MagazineScene {
       <div class="gallery-book"></div>
       <div class="gallery-label">${info.label}</div>
       <button class="gallery-close" type="button" aria-label="戻る">✕</button>
+      <button class="gallery-toc-toggle" type="button" aria-label="目次" aria-expanded="false">⊞</button>
       <button class="gallery-nav prev" type="button" aria-label="前のページ">‹</button>
       <button class="gallery-nav next" type="button" aria-label="次のページ">›</button>
-      <div class="gallery-hint">ページの端をめくる / ‹ ›　✕ / SPACE・戻る</div>
+      <div class="gallery-hint">ページの端をめくる / ‹ ›　⊞ 目次　✕ / SPACE・戻る</div>
+      <div class="gallery-toc" hidden>
+        <div class="gallery-toc-grid" role="list"></div>
+      </div>
     `;
     this.container.appendChild(el);
 
@@ -3328,13 +4324,110 @@ export class MagazineScene {
       if (prevBtn) prevBtn.hidden = i <= 0;
       if (nextBtn) nextBtn.hidden = i >= count - 1;
     };
+    // The thumbnail table of contents: a grid of every page in the issue so the
+    // reader can see the whole magazine at a glance and jump to any page in one
+    // step (the ‹ › flip walks one page at a time). It lives entirely inside this
+    // 鑑賞 overlay — it does NOT open a second layer over the 3D scene — so a jump
+    // stays in the reading context. The thumbnails reuse each entry's `src`, which
+    // is the very same page <img> URL the book renders, so there is no new art and
+    // no extra decode beyond the small grid images.
+    const tocLayer = el.querySelector(".gallery-toc");
+    const tocToggle = el.querySelector(".gallery-toc-toggle");
+    const tocGrid = el.querySelector(".gallery-toc-grid");
+    const tocCells = [];
+    entries.forEach((entry, i) => {
+      const cell = document.createElement("button");
+      cell.type = "button";
+      cell.className = "gallery-thumb";
+      cell.dataset.index = String(i);
+      cell.setAttribute("role", "listitem");
+      // label is already markup (may wrap a .jp span for the chrome entries).
+      cell.innerHTML = `
+        <span class="gallery-thumb-img"><img src="${entry.src}" alt="" loading="lazy" draggable="false" /></span>
+        <span class="gallery-thumb-label">${entry.label}</span>
+      `;
+      tocGrid.appendChild(cell);
+      tocCells.push(cell);
+    });
+
+    // Highlight the cell for the page actually in view. Reads the clamped, real
+    // current index off the live book (getCurrentPageIndex is internally bounded),
+    // NOT any raw/out-of-range parameter, so the highlight never falls off the end.
+    const syncTocActive = () => {
+      if (this.gallery !== g) return;
+      const active = THREE.MathUtils.clamp(
+        pageFlip.getCurrentPageIndex(),
+        0,
+        entries.length - 1,
+      );
+      tocCells.forEach((cell, i) => {
+        const on = i === active;
+        cell.classList.toggle("is-active", on);
+        cell.setAttribute("aria-current", on ? "page" : "false");
+      });
+    };
+
+    const setToc = (open) => {
+      if (this.gallery !== g) return;
+      g.tocOpen = open;
+      tocToggle.setAttribute("aria-expanded", open ? "true" : "false");
+      tocToggle.classList.toggle("is-active", open);
+      if (open) {
+        syncTocActive();
+        tocLayer.hidden = false;
+        // Reduced motion: no fade/scale transition — show it at once. Otherwise the
+        // .is-on class drives the CSS fade-in. Mirror the same guard on close.
+        if (this.reducedMotion) {
+          tocLayer.classList.add("is-on");
+        } else {
+          // next frame so the [hidden]→shown swap commits before the transition.
+          window.setTimeout(() => {
+            if (this.gallery === g && g.tocOpen) tocLayer.classList.add("is-on");
+          }, 16);
+        }
+        // bring the active cell into view (no smooth scroll under reduced motion).
+        const activeCell = tocGrid.querySelector(".gallery-thumb.is-active");
+        if (activeCell) {
+          activeCell.scrollIntoView({
+            block: "nearest",
+            behavior: this.reducedMotion ? "auto" : "smooth",
+          });
+        }
+      } else {
+        tocLayer.classList.remove("is-on");
+        if (this.reducedMotion) {
+          tocLayer.hidden = true;
+        } else {
+          window.setTimeout(() => {
+            if (this.gallery === g && !g.tocOpen) tocLayer.hidden = true;
+          }, 260);
+        }
+      }
+    };
+    g.setToc = setToc;
+
     pageFlip.on("flip", syncChrome);
+    pageFlip.on("flip", syncTocActive);
     pageFlip.on("changeOrientation", syncChrome);
     syncChrome();
 
     el.querySelector(".gallery-close").addEventListener("click", () => this.closeGallery());
     prevBtn.addEventListener("click", () => pageFlip.flipPrev());
     nextBtn.addEventListener("click", () => pageFlip.flipNext());
+    tocToggle.addEventListener("click", () => setToc(!g.tocOpen));
+    tocGrid.addEventListener("click", (event) => {
+      const cell = event.target.closest(".gallery-thumb");
+      if (!cell || this.gallery !== g) return;
+      const i = Number(cell.dataset.index);
+      if (!Number.isInteger(i)) return;
+      // Jump to the chosen page IN-PLACE. turnToPage snaps (no flip animation) and,
+      // crucially, does NOT fire the "flip" event, so the page label / ‹ › arrows
+      // would stop on the stale value unless we resync the chrome by hand here.
+      pageFlip.turnToPage(i);
+      syncChrome();
+      syncTocActive();
+      setToc(false);
+    });
 
     // setTimeout (not rAF) so the fade-in still runs if the tab is backgrounded.
     window.setTimeout(() => {
@@ -3354,6 +4447,22 @@ export class MagazineScene {
   closeGallery() {
     const g = this.gallery;
     if (!g) return;
+    // D2: write the 鑑賞 reading position back to the 3D magazine before tearing
+    // the overlay down, so exiting on P.12 lands the magazine on P.12's spread
+    // instead of bouncing back to where the reader entered. Read the page index
+    // off the live book first (destroy() invalidates it).
+    let landingEntry = null;
+    try {
+      const i = THREE.MathUtils.clamp(
+        g.pageFlip.getCurrentPageIndex(),
+        0,
+        g.entries.length - 1,
+      );
+      landingEntry = g.entries[i] ?? null;
+    } catch {
+      /* book already gone — fall through without a write-back */
+    }
+
     this.gallery = null;
     g.el.classList.remove("is-on");
     try {
@@ -3363,6 +4472,57 @@ export class MagazineScene {
     }
     this.container.classList.remove("in-gallery");
     window.setTimeout(() => g.el.remove(), 380);
+
+    if (landingEntry) this.applyGalleryLanding(landingEntry);
+  }
+
+  // Land the 3D magazine on the spread/state a 鑑賞 entry corresponds to. The
+  // three chrome entries (cover / colophon / back) carry NO `page` field, so a
+  // blind pageToSpread(entry.page) would map undefined → null → spread 0 ("read
+  // the back cover, exit, jump to the front cover"). Each is branched explicitly
+  // up front. Any already-risen standee on the old spread is folded immediately
+  // first, so after exit the current spread never has a stray figure hanging off
+  // a foreign spread.
+  applyGalleryLanding(entry) {
+    if (!entry) return;
+    this.foldStandees(true);
+
+    if (entry.key === "cover") {
+      // front cover → settled-closed (NOT an open spread 0)
+      this.enterClosedCover();
+      this.recordSpread();
+      // J1: these two chrome branches take a dedicated path (enterClosedCover/
+      // enterClosedBack) instead of the shared landOnSpread kernel, which is the
+      // only landing path that does NOT fan out to syncHud automatically. Call it
+      // here so the page label settles immediately, matching every other arrival
+      // (restore / deep-link / interior-page exit) instead of waiting on the
+      // per-frame animate() catch-up.
+      this.syncHud();
+      this.syncMasthead(true);
+      return;
+    }
+    if (entry.key === "back") {
+      // back cover → "closed back" — must go through the dedicated path
+      // (resets the displaced right stack + hides the right page); the open-state
+      // helpers (restoreStacks/applySpread) would leave a stray right-stack offset.
+      this.enterClosedBack();
+      this.recordSpread();
+      this.syncHud(); // J1: same as cover — settle the page label on this path.
+      this.syncMasthead(true);
+      return;
+    }
+    if (entry.key === "colophon") {
+      // colophon (inside back cover) → the final spread, open
+      this.landOnSpread(this.leafCount(), { persist: true });
+      return;
+    }
+    // a regular interior page (has .page) → its spread, open. The reverse lookup
+    // is the single source of truth; both pages of a spread resolve to the same
+    // spread, and applySpread sets both leaves at once.
+    const located = this.pageToSpread(entry.page);
+    if (located) {
+      this.landOnSpread(located.spread, { persist: true });
+    }
   }
 
   handleResize() {
@@ -3420,6 +4580,8 @@ export class MagazineScene {
     this.updatePeel(delta);
     this.updateStandees(delta, elapsed);
     this.updateTour();
+    this.syncTourButton();
+    this.syncMasthead();
     this.updateShow(delta);
     this.updateCamera(delta, now);
     this.updateMicroMotion(elapsed);
@@ -3450,8 +4612,12 @@ export class MagazineScene {
   // sub-pixel in shadow terms, so a frozen map there is imperceptible.
   shadowsNeedUpdate() {
     if (this.shadowSettle === undefined) this.shadowSettle = 4;
+    // BUG-PEEL-SHADOW: peel.amount is geometry-in-motion (drag-to-preview the
+    // page lift) and previously was not in casterMoving — so the shadow map
+    // froze on the first peel frame. Add it so peel updates the shadow too.
     const casterMoving =
-      !!this.activeAnimation || !!this.turn || !!this.show || this.anyStandeeUnfolded();
+      !!this.activeAnimation || !!this.turn || !!this.show ||
+      this.anyStandeeUnfolded() || (this.peel?.amount ?? 0) > 0.001;
     if (casterMoving) this.shadowSettle = 3;
     if (this.shadowSettle > 0) {
       this.shadowSettle -= 1;
@@ -3464,6 +4630,19 @@ export class MagazineScene {
   // first, then resolution toward the floor), recover slowly after a long calm
   // window. Frame interval is vsync-bounded, so we only treat sustained overruns
   // as "slow" and probe recovery rarely (backoff) to avoid resolution pumping.
+  //
+  // BUG-QUALITY-STUCK fix (Sprint 6 / Iter 1):
+  //   (a) The down-shift branch grew backoff exponentially to a cap of 16;
+  //       the up-shift branch never reset it. Once we hit the floor, backoff
+  //       stayed at 16 forever — cooldown 80s/step and even after a step the
+  //       next probe was still 80s away. Real users who briefly tab-switched
+  //       could permanently lock to floor. Now the up-shift branch halves
+  //       backoff (mirror of the down-shift) so successful probes cheapen
+  //       future probes; failed probes still cost more.
+  //   (b) visibilitychange (registered in bindEvents) resets backoff/ema/since
+  //       on tab-restore so the next frame's raw-delta spike doesn't poison
+  //       the ema. This also keeps headless rAF pauses from accumulating fake
+  //       "SMOOTH" intervals between throttled frames.
   trackFrameQuality(now, delta) {
     const q = this.quality ?? (this.quality = { ema: 16.7, since: 0, backoff: 1 });
     const raw = now - (this.lastRawFrame ?? now);
@@ -3488,8 +4667,24 @@ export class MagazineScene {
       if (this.pixelRatio < this.qualityCeil - 0.01) {
         this.applyQuality(Math.min(this.qualityCeil, this.pixelRatio + 0.25));
         q.since = 0;
+        // Mirror of the down-shift: successful recovery halves backoff so we
+        // probe more eagerly next time, instead of staying at the cap forever.
+        q.backoff = Math.max(1, q.backoff / 2);
       }
     }
+  }
+
+  // BUG-QUALITY-STUCK (b): tab-restore handler. After a tab is hidden, rAF is
+  // paused and the next visible frame may have a huge raw delta — the existing
+  // raw<250 filter swallows that one frame but a few subsequent frames before
+  // ema recovers can poison things. Reset the quality state so we start fresh.
+  handleVisibilityChange() {
+    if (typeof document === "undefined" || document.hidden) return;
+    if (!this.quality) return;
+    this.quality.backoff = 1;
+    this.quality.ema = 17; // SMOOTH baseline (matches trackFrameQuality const)
+    this.quality.since = 0;
+    this.lastRawFrame = performance.now();
   }
 
   applyQuality(pixelRatio) {
@@ -3512,10 +4707,24 @@ export class MagazineScene {
     window.removeEventListener("keydown", this.handleKeyDown);
     window.removeEventListener("keyup", this.handleKeyUp);
     window.removeEventListener("blur", this.handleWindowBlur);
+    if (typeof document !== "undefined") {
+      document.removeEventListener("visibilitychange", this.handleVisibilityChange);
+    }
     if (this.gallery) {
       this.gallery.el.remove();
       this.gallery = null;
     }
+    if (this.lookCard) {
+      this.lookCard.el.remove();
+      this.lookCard = null;
+    }
+    window.clearTimeout(this.cardShareFlashTimer);
+    // BUG-DISPOSE-SHARE-TIMER (Sprint 6 / Iter 2): symmetric counterpart to the
+    // line above — cardShareFlashTimer was cleared, shareFlashTimer was not.
+    // Same 1600ms HUD-share flash pattern; without clearing, a dispose during
+    // the flash window leaves a stale setTimeout in flight (guarded inside,
+    // so non-fatal, but a real micro-leak).
+    window.clearTimeout(this.shareFlashTimer);
     this.container.classList.remove("has-pointer", "is-pressing", "in-gallery");
     delete this.container.dataset.cursor;
 
