@@ -46,6 +46,13 @@ Thumbs.db
 
 # Scratch / audit artifacts
 tmp/
+# Ignore public/ contents (heavy runtime assets) but KEEP the social-preview
+# image (H1): it must ship so the OG meta in index.html resolves /og-cover.png
+# after build/deploy. Negating a file under a fully-ignored dir does NOT work —
+# git won't descend into it — so ignore the contents (public/*) instead of the
+# dir, then re-include the one file.
+public/*
+!public/og-cover.png
 
 # Heavy working + backup assets not used at runtime
 # (runtime loads from public/pbr, assets/image, assets/image-packs, assets/video)

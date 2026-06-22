@@ -109,6 +109,160 @@ body {
   font-variant-numeric: tabular-nums;
 }
 
+/* C8: the current spread's character, shown in the masthead in place of the
+   issue line. Same quiet weight as the subtitle so it reads as metadata. */
+.hud-character[hidden] {
+  display: none;
+}
+
+.hud-character {
+  margin-top: 9px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-width: min(46vw, 320px);
+}
+
+.hud-character-name {
+  font-size: 11px;
+  letter-spacing: 0.22em;
+  color: var(--paper);
+}
+
+.hud-character-intro {
+  font-size: 9.5px;
+  letter-spacing: 0.10em;
+  line-height: 1.6;
+  color: var(--paper-dim);
+}
+
+/* E5: masthead action row — the language toggle and the share button sit on
+   one quiet pill row under the masthead, clear of the crowded bottom HUD. */
+.hud-masthead-actions {
+  margin-top: 12px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+/* C7: language toggle, sharing the quiet pill language of the bottom HUD
+   buttons but anchored under the masthead so it never collides with the
+   bottom-center status column (A1) and stays reachable on touch. */
+.hud-locale {
+  display: inline-flex;
+  pointer-events: auto;
+  -webkit-appearance: none;
+  appearance: none;
+  border: 1px solid var(--hairline);
+  background: rgba(255, 248, 238, 0.05);
+  color: var(--paper-dim);
+  font-family: var(--font-jp);
+  font-size: 10px;
+  letter-spacing: 0.20em;
+  text-indent: 0.20em;
+  padding: 5px 13px;
+  border-radius: 999px;
+  cursor: pointer;
+  transition:
+    background 0.25s var(--ease-out),
+    border-color 0.25s var(--ease-out),
+    color 0.25s var(--ease-out);
+}
+
+.hud-locale:hover {
+  background: rgba(255, 248, 238, 0.11);
+  border-color: var(--paper-dim);
+  color: var(--paper);
+}
+
+/* The active language reads bright; the other side dims, so the toggle doubles
+   as a state indicator without an extra label. */
+.hud-locale .loc-ja,
+.hud-locale .loc-zh {
+  color: var(--paper-faint);
+  transition: color 0.25s var(--ease-out);
+}
+
+.hud-locale[data-locale="ja"] .loc-ja,
+.hud-locale[data-locale="zh"] .loc-zh {
+  color: var(--paper);
+}
+
+/* E5: share button — same quiet pill as the locale toggle. Brief is-copied /
+   is-failed flash after a click confirms the clipboard write without a toast. */
+.hud-share {
+  display: inline-flex;
+  pointer-events: auto;
+  -webkit-appearance: none;
+  appearance: none;
+  border: 1px solid var(--hairline);
+  background: rgba(255, 248, 238, 0.05);
+  color: var(--paper-dim);
+  font-family: var(--font-jp);
+  font-size: 10px;
+  letter-spacing: 0.20em;
+  text-indent: 0.20em;
+  padding: 5px 13px;
+  border-radius: 999px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition:
+    background 0.25s var(--ease-out),
+    border-color 0.25s var(--ease-out),
+    color 0.25s var(--ease-out);
+}
+
+.hud-share:hover {
+  background: rgba(255, 248, 238, 0.11);
+  border-color: var(--paper-dim);
+  color: var(--paper);
+}
+
+.hud-share.is-copied {
+  border-color: var(--paper);
+  color: var(--paper);
+}
+
+.hud-share.is-failed {
+  border-color: var(--paper-dim);
+  color: var(--paper-dim);
+}
+
+/* CARD-1: the look-card entry pill — same quiet language as the share/locale
+   pills, shown only on spreads that carry a commentary character. */
+.hud-card {
+  display: inline-flex;
+  pointer-events: auto;
+  -webkit-appearance: none;
+  appearance: none;
+  border: 1px solid var(--hairline);
+  background: rgba(255, 248, 238, 0.05);
+  color: var(--paper-dim);
+  font-family: var(--font-jp);
+  font-size: 10px;
+  letter-spacing: 0.20em;
+  text-indent: 0.20em;
+  padding: 5px 13px;
+  border-radius: 999px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition:
+    background 0.25s var(--ease-out),
+    border-color 0.25s var(--ease-out),
+    color 0.25s var(--ease-out);
+}
+
+.hud-card[hidden] {
+  display: none;
+}
+
+.hud-card:hover {
+  background: rgba(255, 248, 238, 0.11);
+  border-color: var(--paper-dim);
+  color: var(--paper);
+}
+
 .hud-feature {
   position: absolute;
   top: max(26px, env(safe-area-inset-top));
@@ -193,9 +347,22 @@ body {
   display: none;
 }
 
-@media (pointer: coarse) {
+/* Switch to the touch hint on coarse pointers OR any narrow viewport: a phone
+   reported as a fine pointer still has no keyboard and no room for a shortcut row. */
+@media (pointer: coarse), (max-width: 640px) {
   .hud-keys { display: none; }
   .hud-touch { display: block; }
+}
+
+/* On narrow viewports the bottom-centered .hud-status column grows upward once a
+   figure rises (page → rule → hint → 鑑賞 → 解説 pills) and the commentary caption
+   sits low-center too, so the bottom-right .hud-touch hint — which shares the 24px
+   baseline — ends up overlapping both. Lift it clear above the caption band and
+   the tallest the pill column reaches. Wide viewports keep the corner anchor. */
+@media (max-width: 640px) {
+  .hud-touch {
+    bottom: calc(max(24px, env(safe-area-inset-bottom)) + 168px);
+  }
 }
 
 /* Reading-mode entry button: the only touch path into 鑑賞 (Space-only before). */
@@ -225,13 +392,78 @@ body {
   border-color: var(--paper-dim);
 }
 
+/* Guided-tour entry, sharing the reading button's quiet pill language. Its own
+   appearance is JS-driven (the [hidden] attribute) so it shows only when the
+   current spread actually has a commentary figure to walk through. */
+.hud-tour {
+  margin-top: 9px;
+  pointer-events: auto;
+  -webkit-appearance: none;
+  appearance: none;
+  border: 1px solid var(--hairline);
+  background: rgba(255, 248, 238, 0.05);
+  color: var(--paper);
+  font-family: var(--font-jp);
+  font-size: 11px;
+  letter-spacing: 0.26em;
+  text-indent: 0.26em;
+  padding: 7px 17px;
+  border-radius: 999px;
+  cursor: pointer;
+  transition:
+    background 0.25s var(--ease-out),
+    border-color 0.25s var(--ease-out),
+    opacity 0.4s var(--ease-out);
+}
+
+.hud-tour[hidden] {
+  display: none;
+}
+
+.hud-tour:hover {
+  background: rgba(255, 248, 238, 0.11);
+  border-color: var(--paper-dim);
+}
+
 .magazine-stage.in-gallery .hud-read,
-.magazine-stage.in-show .hud-read {
+.magazine-stage.in-show .hud-read,
+.magazine-stage.in-gallery .hud-tour,
+.magazine-stage.in-show .hud-tour {
   opacity: 0;
   pointer-events: none;
 }
 
 .hud.is-on .hud-item:nth-child(4) { transition-delay: 0.46s; }
+
+/* ---- I1: bottom HUD load-bearing on narrow viewports -------------------- */
+/* The bottom-centered column (page → rule → hint → 鑑賞 → 解説) grows upward and
+   on a 375px phone the worst case (both pills present) reaches ~159px, with the
+   解説 pill bottoming the viewport at ~12px — no headroom for a Sprint 5 card
+   entry. This tightens the column on narrow screens to reclaim vertical budget
+   WITHOUT removing any control: the rule divider collapses (it is pure
+   decoration), the gaps and pill margins shrink, and the page→hint text packs
+   in. Both pills stay visible and reachable; the in-gallery/in-show hide rules
+   and the .hud-touch avoidance offset are untouched. */
+@media (max-width: 640px) {
+  .hud-status {
+    gap: 6px;
+  }
+
+  /* Decorative hairline — drop it on phones to save a row + its two gaps. */
+  .hud-status .hud-rule {
+    display: none;
+  }
+
+  .hud-read {
+    margin-top: 8px;
+    padding: 6px 15px;
+  }
+
+  .hud-tour {
+    margin-top: 6px;
+    padding: 6px 15px;
+  }
+}
 
 /* ---- Loader ----------------------------------------------------------- */
 
@@ -468,8 +700,18 @@ body {
 
 /* Gallery controls: touch needs an on-screen close (Space/Esc only before) and
    page swap; these also help mouse users. */
+/* BUG-TOC-TOGGLE (Sprint 6 / Iter 1): `.gallery-toc-toggle` was missing
+   `position:absolute` (and the rest of the visual contract) — its block at
+   line ~760 below only wrote `top` / `right` / size / font, so the absolute
+   coordinates resolved against a static parent and the button rendered at
+   (0,0) overlapping `.gallery-label`. It still received clicks (z-index not
+   blocked), so 5 rounds of DOM-rect-only Evaluator missed this: it is a
+   visually-only regression. Fix: include the toggle in this shared selector
+   group so it inherits position/visual contract; the per-block at :760 keeps
+   only its identity properties (corner position, size, font, .is-active). */
 .gallery-close,
-.gallery-nav {
+.gallery-nav,
+.gallery-toc-toggle {
   position: absolute;
   z-index: 6;
   pointer-events: auto;
@@ -493,7 +735,8 @@ body {
 }
 
 .gallery-close:hover,
-.gallery-nav:hover {
+.gallery-nav:hover,
+.gallery-toc-toggle:hover {
   background: rgba(10, 8, 7, 0.82);
   border-color: var(--paper-dim);
 }
@@ -521,6 +764,128 @@ body {
 .gallery-nav.next { right: max(14px, env(safe-area-inset-right)); }
 .gallery-nav[hidden] { display: none; }
 
+/* ---- Gallery table of contents (缩略图目录) ----------------------------- */
+
+/* The ⊞ toggle shares the gallery control language. It sits left of the close
+   button so the two top-right chrome buttons read as a pair. */
+.gallery-toc-toggle {
+  top: max(20px, env(safe-area-inset-top));
+  right: calc(max(20px, env(safe-area-inset-right)) + 48px);
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  font-size: 16px;
+}
+
+.gallery-toc-toggle.is-active {
+  background: rgba(255, 248, 238, 0.14);
+  border-color: var(--paper-dim);
+}
+
+/* The grid overlays the book inside the same 鑑賞 layer (it never opens a second
+   layer over the 3D scene). Scrolls when the whole issue does not fit. */
+.gallery-toc {
+  position: absolute;
+  inset: 0;
+  z-index: 7;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  background: rgba(10, 8, 7, 0.92);
+  -webkit-backdrop-filter: blur(6px);
+  backdrop-filter: blur(6px);
+  padding: max(72px, env(safe-area-inset-top)) clamp(16px, 5vw, 48px)
+    max(28px, env(safe-area-inset-bottom));
+  opacity: 0;
+  transform: scale(0.985);
+  transition:
+    opacity 0.3s var(--ease-out),
+    transform 0.3s var(--ease-out);
+}
+
+.gallery-toc.is-on {
+  opacity: 1;
+  transform: none;
+}
+
+.gallery-toc[hidden] {
+  display: none;
+}
+
+/* Responsive auto-fill: ~4-5 columns on phones, more on desktop, never overflows. */
+.gallery-toc-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
+  gap: clamp(10px, 2.4vw, 20px);
+  max-width: 1100px;
+  margin: 0 auto;
+}
+
+.gallery-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: pointer;
+  color: var(--paper-dim);
+  font-family: var(--font-latin);
+  font-size: 10px;
+  letter-spacing: 0.18em;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+}
+
+.gallery-thumb-img {
+  display: block;
+  width: 100%;
+  aspect-ratio: 3 / 4;
+  overflow: hidden;
+  background-color: var(--ink);
+  border: 1px solid var(--hairline);
+  border-radius: 2px;
+  transition:
+    border-color 0.2s var(--ease-out),
+    box-shadow 0.2s var(--ease-out),
+    transform 0.2s var(--ease-out);
+}
+
+.gallery-thumb-img img {
+  width: 100%;
+  height: 100%;
+  display: block;
+  object-fit: cover;
+  -webkit-user-drag: none;
+  user-select: none;
+}
+
+.gallery-thumb-label .jp {
+  font-family: var(--font-jp);
+}
+
+.gallery-thumb:hover .gallery-thumb-img,
+.gallery-thumb:focus-visible .gallery-thumb-img {
+  border-color: var(--paper-dim);
+  transform: translateY(-2px);
+}
+
+.gallery-thumb:hover,
+.gallery-thumb:focus-visible {
+  color: var(--paper);
+}
+
+/* Current page: a clear ring + brighter label so "you are here" reads at a glance. */
+.gallery-thumb.is-active .gallery-thumb-img {
+  border-color: var(--paper);
+  box-shadow: 0 0 0 1px var(--paper), 0 6px 22px rgba(10, 8, 7, 0.6);
+}
+
+.gallery-thumb.is-active {
+  color: var(--paper);
+}
+
 .magazine-stage.in-gallery .cursor-dot {
   opacity: 0;
 }
@@ -534,6 +899,334 @@ body {
   opacity: 0.18;
 }
 
+/* ---- Look card (コーデ archive card, CARD-1) ---------------------------- */
+
+/* The card parasitizes its own absolute overlay above the canvas (like the
+   gallery), never a second canvas-covering 3D layer. The scrim dims the scene;
+   the sheet is the paper feature page. Visual language is 100% paper-craft
+   (the swing-tag palette: paper #f6efe0, ink rgba(30,24,18,*), Shippori Mincho),
+   NOT a generic social card. */
+.look-card {
+  position: absolute;
+  inset: 0;
+  z-index: 8;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: clamp(0px, 4vh, 48px) clamp(0px, 4vw, 48px);
+  background: rgba(10, 8, 7, 0.74);
+  -webkit-backdrop-filter: blur(5px);
+  backdrop-filter: blur(5px);
+  opacity: 0;
+  transition: opacity 0.32s var(--ease-out);
+  pointer-events: auto;
+  overflow: hidden;
+}
+
+.look-card.is-on {
+  opacity: 1;
+}
+
+/* The paper sheet. On wide screens it is a centered card; at 375px it becomes a
+   full-screen, vertically scrollable sheet (5 bilingual looks run long — never a
+   cramped bottom popup). */
+.look-card-sheet {
+  position: relative;
+  width: min(560px, 100%);
+  max-height: 100%;
+  display: flex;
+  flex-direction: column;
+  background: #f6efe0;
+  color: rgba(30, 24, 18, 0.85);
+  border: 1px solid rgba(40, 32, 24, 0.25);
+  border-radius: 3px;
+  box-shadow:
+    0 0 0 1px rgba(40, 32, 24, 0.08),
+    0 30px 80px rgba(10, 8, 7, 0.55);
+  transform: translateY(10px) scale(0.99);
+  transition:
+    transform 0.32s var(--ease-out);
+  overflow: hidden;
+}
+
+.look-card.is-on .look-card-sheet {
+  transform: none;
+}
+
+.look-card-scroll {
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  padding: clamp(26px, 5vw, 40px) clamp(22px, 5vw, 40px) clamp(22px, 4vw, 32px);
+}
+
+.look-card-close {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  z-index: 2;
+  -webkit-appearance: none;
+  appearance: none;
+  width: 34px;
+  height: 34px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgba(40, 32, 24, 0.22);
+  border-radius: 999px;
+  background: rgba(246, 239, 224, 0.7);
+  color: rgba(30, 24, 18, 0.7);
+  font-family: var(--font-jp);
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+  transition:
+    background 0.2s var(--ease-out),
+    border-color 0.2s var(--ease-out),
+    color 0.2s var(--ease-out);
+}
+
+.look-card-close:hover {
+  background: rgba(246, 239, 224, 0.95);
+  border-color: rgba(40, 32, 24, 0.4);
+  color: rgba(30, 24, 18, 0.9);
+}
+
+.look-card-kicker {
+  font-family: var(--font-latin);
+  font-size: 10px;
+  letter-spacing: 0.34em;
+  color: rgba(30, 24, 18, 0.45);
+  text-transform: uppercase;
+}
+
+.look-card-title {
+  margin: 10px 0 0;
+  font-family: var(--font-jp);
+  font-weight: 500;
+  font-size: clamp(20px, 5vw, 26px);
+  line-height: 1.3;
+  letter-spacing: 0.04em;
+  color: rgba(30, 24, 18, 0.92);
+}
+
+.look-card-person {
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px solid rgba(40, 32, 24, 0.16);
+}
+
+.look-card-name {
+  font-family: var(--font-jp);
+  font-size: 13px;
+  letter-spacing: 0.18em;
+  color: rgba(30, 24, 18, 0.8);
+}
+
+.look-card-intro {
+  margin: 8px 0 0;
+  font-family: var(--font-jp);
+  font-size: 12.5px;
+  line-height: 1.85;
+  letter-spacing: 0.02em;
+  color: rgba(30, 24, 18, 0.62);
+}
+
+.look-card-runway {
+  margin-top: 16px;
+  padding: 12px 16px;
+  background: rgba(40, 32, 24, 0.04);
+  border-left: 2px solid rgba(40, 32, 24, 0.3);
+  font-family: var(--font-jp);
+  font-size: 12px;
+  font-style: italic;
+  line-height: 1.8;
+  color: rgba(30, 24, 18, 0.6);
+}
+
+.look-card-runway[hidden] {
+  display: none;
+}
+
+.look-card-items {
+  margin: 22px 0 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.look-card-item {
+  padding-top: 16px;
+  border-top: 1px solid rgba(40, 32, 24, 0.14);
+}
+
+.look-card-item:first-child {
+  padding-top: 0;
+  border-top: 0;
+}
+
+/* the deep-linked / shared item reads brighter, with a quiet paper ground. */
+.look-card-item.is-active {
+  margin: 0 -14px;
+  padding: 16px 14px;
+  border-top: 0;
+  background: rgba(40, 32, 24, 0.05);
+  border-radius: 2px;
+  box-shadow: inset 2px 0 0 rgba(40, 32, 24, 0.45);
+}
+
+.look-card-item-head {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.look-card-item-no {
+  font-family: var(--font-latin);
+  font-size: 12px;
+  letter-spacing: 0.1em;
+  color: rgba(30, 24, 18, 0.4);
+  font-variant-numeric: tabular-nums;
+}
+
+.look-card-item-name {
+  font-family: var(--font-jp);
+  font-size: 14px;
+  letter-spacing: 0.04em;
+  color: rgba(30, 24, 18, 0.88);
+}
+
+.look-card-item-part {
+  font-family: var(--font-latin);
+  font-size: 9.5px;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: rgba(30, 24, 18, 0.4);
+}
+
+.look-card-tags {
+  margin-top: 7px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.look-card-tags span {
+  font-family: var(--font-jp);
+  font-size: 10.5px;
+  letter-spacing: 0.08em;
+  color: rgba(30, 24, 18, 0.55);
+  padding: 2px 9px;
+  border: 1px solid rgba(40, 32, 24, 0.2);
+  border-radius: 999px;
+}
+
+.look-card-item-text {
+  margin: 9px 0 0;
+  font-family: var(--font-jp);
+  font-size: 12px;
+  line-height: 1.85;
+  letter-spacing: 0.01em;
+  color: rgba(30, 24, 18, 0.66);
+}
+
+/* UX-CARD-ACTIONS (Sprint 6 / Iter 1): on 1280×800 desktop default viewport
+   the backlink + share CTAs lived below the fold of the scroll container.
+   Sticky to the bottom of `.look-card-scroll` (overflow-y:auto) with a fade
+   gradient that softens the join from paper body into the action row, so
+   "回杂志 / 分享卡片" are always visible without forcing the user to scroll.
+   On 375px the sheet is full-screen and the actions were already visible at
+   the bottom — sticky now makes them present from open rather than after-scroll,
+   which is a UX upgrade with no animation hiccups (border-top hairline still
+   provides the visual contract; the gradient sits above it). */
+.look-card-actions {
+  position: sticky;
+  bottom: 0;
+  margin-top: 26px;
+  padding: 18px 0 4px;
+  border-top: 1px solid rgba(40, 32, 24, 0.16);
+  background: linear-gradient(
+    to bottom,
+    rgba(246, 239, 224, 0) 0,
+    rgba(246, 239, 224, 0.94) 36%,
+    #f6efe0 70%
+  );
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  z-index: 1;
+}
+
+.look-card-backlink,
+.look-card-share {
+  -webkit-appearance: none;
+  appearance: none;
+  font-family: var(--font-jp);
+  font-size: 11px;
+  letter-spacing: 0.16em;
+  text-indent: 0.16em;
+  padding: 8px 16px;
+  border-radius: 999px;
+  cursor: pointer;
+  transition:
+    background 0.2s var(--ease-out),
+    border-color 0.2s var(--ease-out),
+    color 0.2s var(--ease-out);
+}
+
+.look-card-backlink {
+  border: 1px solid rgba(40, 32, 24, 0.5);
+  background: rgba(40, 32, 24, 0.85);
+  color: #f6efe0;
+}
+
+.look-card-backlink:hover {
+  background: rgba(40, 32, 24, 1);
+}
+
+.look-card-share {
+  border: 1px solid rgba(40, 32, 24, 0.3);
+  background: transparent;
+  color: rgba(30, 24, 18, 0.7);
+}
+
+.look-card-share:hover {
+  border-color: rgba(40, 32, 24, 0.55);
+  color: rgba(30, 24, 18, 0.9);
+}
+
+.look-card-share.is-copied {
+  border-color: rgba(40, 32, 24, 0.7);
+  color: rgba(30, 24, 18, 0.95);
+}
+
+.look-card-share.is-failed {
+  border-color: rgba(40, 32, 24, 0.2);
+  color: rgba(30, 24, 18, 0.45);
+}
+
+/* 375px: a full-screen, scrollable sheet rather than a cramped popup. */
+@media (max-width: 640px) {
+  .look-card {
+    padding: 0;
+  }
+
+  .look-card-sheet {
+    width: 100%;
+    height: 100%;
+    max-height: 100%;
+    border: 0;
+    border-radius: 0;
+  }
+
+  .look-card-scroll {
+    padding-top: max(46px, env(safe-area-inset-top));
+    padding-bottom: max(28px, env(safe-area-inset-bottom));
+  }
+}
+
 /* ---- Reduced motion ----------------------------------------------------- */
 
 @media (prefers-reduced-motion: reduce) {
@@ -543,5 +1236,27 @@ body {
   .cursor-dot,
   .cursor-chevron {
     transition-duration: 0.01s;
+  }
+
+  /* The 鑑賞 table of contents shows/hides instantly (the JS also skips the
+     deferred class-add and scroll-into-view smoothing under reduced motion). */
+  .gallery-toc,
+  .gallery-thumb-img {
+    transition-duration: 0.01s;
+  }
+
+  .gallery-toc {
+    transform: none;
+  }
+
+  /* CARD-1: the look card appears/disappears instantly under reduced motion (the
+     JS also skips the deferred .is-on add and the scroll-into-view smoothing). */
+  .look-card,
+  .look-card-sheet {
+    transition-duration: 0.01s;
+  }
+
+  .look-card-sheet {
+    transform: none;
   }
 }

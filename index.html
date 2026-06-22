@@ -4,6 +4,47 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>ATELIER アトリヱ MAY 2026</title>
+    <meta
+      name="description"
+      content="ATELIER アトリヱ — a paper fashion magazine you can pick up, leaf through, and read on a 3D table. MAY 2026 issue."
+    />
+
+    <!-- Open Graph / social preview ---------------------------------------- -->
+    <!-- NOTE: This is a single-page app served as a static site, so these tags
+         are STATIC. Every shared link — including deep links like ?spread=7 —
+         resolves to this one preview card (same cover, same title). Per-spread
+         preview cards would require server-side rendering, which is out of scope
+         for a static localhost build. Do not pretend these are dynamic. -->
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="ATELIER アトリヱ" />
+    <meta property="og:title" content="ATELIER アトリヱ — MAY 2026" />
+    <meta
+      property="og:description"
+      content="A paper fashion magazine you can pick up, leaf through, and read on a 3D table. 15 looks, fully bilingual."
+    />
+    <meta property="og:image" content="/og-cover.png" />
+    <meta property="og:image:alt" content="ATELIER アトリヱ MAY 2026 cover" />
+    <meta property="og:locale" content="ja_JP" />
+    <meta property="og:locale:alternate" content="zh_CN" />
+
+    <!-- Twitter card -->
+    <!-- NOTE: og-cover.png is the 941×1672 PORTRAIT cover (the only cover art we
+         have). twitter:card=summary_large_image expects a ~1.91:1 LANDSCAPE image
+         and would letterbox the portrait cover with black bars. There is no
+         landscape source in the repo (everything is portrait covers or 2048²
+         interiors), and cropping a 1200×630 strip out of the tall cover would
+         throw away most of the layout. So we use the small square `summary` card
+         here, which frames the portrait cover without letterboxing. A bespoke
+         landscape OG image is a design task for a future pass — we do not stretch
+         or crop the cover to fake one. -->
+    <meta name="twitter:card" content="summary" />
+    <meta name="twitter:title" content="ATELIER アトリヱ — MAY 2026" />
+    <meta
+      name="twitter:description"
+      content="A paper fashion magazine you can pick up, leaf through, and read on a 3D table. 15 looks, fully bilingual."
+    />
+    <meta name="twitter:image" content="/og-cover.png" />
+
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
