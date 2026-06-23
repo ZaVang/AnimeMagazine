@@ -5,6 +5,8 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
+    "asset:webgl-variants": "node scripts/generate-webgl-variants.mjs",
+    "asset:audit": "node scripts/asset-audit.mjs",
     "preview": "vite preview"
   },
   "dependencies": {

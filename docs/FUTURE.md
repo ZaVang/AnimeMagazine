@@ -181,6 +181,158 @@
 > 取舍：换用翻页书后**移除了旧的捏合缩放**（StPageFlip 不内置）。当前单页满屏已比 3D 视图清晰得多；
 > 若仍需放大细看小字，后续可加「双击页面 → 单页缩放灯箱」（候选）。
 
+## 后续优化 Roadmap — Messenger 视觉系统 + editorial voice（待实施）
+
+外部参考已沉淀到 `docs/messenger-visual-reference.md`。结论：不要照搬星球/水面/低多边形题材，
+但应借鉴其 **shader-first 视觉系统、GPU 友好资源格式、可选后处理、真实浏览器验证、叙事节奏**。
+
+这些优化按“先减负和提清晰度 → 再补视觉质感 → 再补叙事和语音”的顺序排。每个 sprint 应独立可合并，
+不要把资源管线、shader、TTS、前端交互塞进同一个大改。
+
+## Sprint 13a — 资源基线 + 后台上传分帧（P0，已完成）
+
+目标：把“重、糊、加载慢”的问题先变成可审计对象，并先移除一个已知 jank 来源。
+说明：这是 `docs/plans/SPRINT13.md` 实际完成的范围，不等于原 roadmap 里完整的资源瘦身承诺。
+
+- [x] 建立资产体检表：记录 `dist/` 总大小、最大文件、PNG/PBR/MP4 分类体积，并可用 `npm run asset:audit` 重复生成。
+- [x] WebGL / DOM 资源职责图：明确 3D 场景页图、立牌、PBR 与 DOM 鑑賞层用图的边界；`鑑賞` 不退回 canvas。
+- [x] 把后台页图的 `renderer.initTexture(texture)` GPU 上传做成小队列，渲染循环每帧只预热 1 张。
+- [x] `npm run build` 与 `npm run asset:audit` 作为 Sprint 13a 验收命令保留到文档。
+
+已知缺口：
+
+- 13a 没有真正腾出主要下载预算；它只是建立 baseline、职责边界和一个小的帧时间修复。
+- PERF-1 的收益来自机制判断，尚没有帧时长/FCP/TTI 的前后实测。
+- 后续依赖性能预算的 shader、语音、叙事动效不能默认把 13a 当作完整资源优化完成。
+
+## Sprint 13b — 资源瘦身 + 可测探针（P0，已完成）
+
+目标：真正减少 runtime 下载/解码/GPU 压力，并把“体感流畅”变成可复查数字。
+
+- [x] 下采样过重 runtime PBR 法线贴图：`paper_0026_normal_opengl_2k.png` 与
+      `wood_0066_normal_opengl_2k.png` 保持路径不变，运行时版本从 2048px 降到 1024px；源素材包仍保留在 `assets/pbr/`。
+- [x] WebGL-only display assets 生成 WebP 变体并接入 Three.js：`background-only` 与 sheet/透明立牌改走
+      `images-webgl/*.webp`，DOM 鑑賞层仍使用 canonical `main-visual.png`。
+- [x] WebGL-only 纹理分层落到代码：立牌、背景、表情/动作 sheet 不再从 canonical PNG 进入构建。
+- [x] 资产体积探针可跑：`npm run asset:audit` 固定记录 PBR 前后体积与 WebGL display variant family reduction。
+- [x] WebGL display variant 漂移校验：`npm run asset:audit` 检查缺失、孤儿、源图更新后未重生的 WebP。
+
+defer（不阻塞 13b 合并）：
+
+- defer：KTX2/Basis 工具链装好后，再比较 KTX2/Basis 与 WebP/AVIF 的体积、清晰度和兼容性。
+- defer：DOM 鑑賞层高分源图与响应式 `srcset`；这依赖更高清的源素材，纯前端无法突破当前素材天花板。
+- defer：主页面 `main-visual` 分层；阅读层要高分清晰，WebGL 页面材质可以另走 display copy，但需要更完整视觉 QA。
+- defer：FCP/TTI 或近似可交互时间、后台纹理上传计数；现阶段已有体积探针与 drift guard，精细时序观测放到后续 perf pass。
+
+验收：
+
+- `npm run build` 通过，`npm run asset:audit` 记录 PBR 前后体积、WebGL display variant 体积与当前 `dist/` 总体积。
+- 最大 runtime 文件清单不再被 20MB 级 PBR 法线图占据。
+- WebGL-only image-pack PNG 不再进入 `dist/assets`；阅读层 `main-visual.png` 仍保留 DOM `<img>` 路线。
+- 已做 1280x800 与 375x812 的 WebGL smoke：page 7 立牌可起立、贴图走 `images-webgl/*.webp`、无 4xx；更广覆盖的肉眼 QA 仍保留。
+- 鑑賞层仍是 DOM `<img>`，不退回 canvas flipbook。
+
+## Sprint 14 — 纸张/印刷 shader 与轻量色彩分级（P1）
+
+目标：学习 Messenger 的 shader-first 思路，把“高级感”更多放到 GPU 规则里，而不是继续堆 PNG。
+
+- [ ] 做一个 `PrintedPaperShader` 或等价材质层：纸纤维、墨色微对比、页面边缘轻微暗角、受光方向高光 breakup。
+- [ ] 翻页叶片加入 bend-dependent 高光/阴影，让页面弯折时有纸张厚度和受力感。
+- [ ] 立牌材质加入克制的 rim/soft cutout 融合，减少“平贴纸片”的观感；不改变现有锚点和 commentary 数据源。
+- [ ] 统一轻量 color grade：优先做小型 ShaderPass/LUT 风格映射，配置仍收敛到 `render-config.js`。
+- [ ] reduced-motion 下禁用所有时间驱动装饰；静态纸纹可以保留，动态噪声必须关闭或冻结到不可感知。
+- [ ] 不默认重开 BokehPass。DoF 仍是永久 backlog，除非有新的像素/真机证据证明收益大于帧成本。
+
+验收：
+
+- 纸张仍读作“印刷品”，不能变成塑料、玻璃或游戏 UI 面板。
+- 像素检查覆盖 avgLum、clipFrac、暗部比例、封面高光、立牌 rim，不破坏当前 NeutralToneMapping 基线。
+- 桌面/移动端截图方向一致，不卡顿，不出现静态噪声锁屏感。
+
+## Sprint 15 — 叙事节奏与跨页主事件（P1）
+
+目标：让杂志像一段可交互 editorial tour，而不是功能按钮并列的 3D demo。
+
+- [ ] 为每个 spread 标一个主视觉事件：安静阅读、立牌起立、单品解说、look-card、runway、封面/封底仪式感。
+- [ ] 每个跨页默认只强调一个主事件；其它入口保留但降噪，避免 HUD 同时抢戏。
+- [ ] 首次进入某类事件时用场景内动势引导，优先通过镜头、光、热点呼吸、纸质吊牌出现来提示，少加说明文字。
+- [ ] 给 `commentary.json` 增加可选 `beat`/`focus` 元数据（不影响现有 schema）：用于决定镜头轻推、字幕节奏、
+      是否自动提示 look-card 或 runway。
+- [ ] 复查七状态互斥矩阵：`state` / `turn` / `show` / `tour` / `gallery` / `lookCard` / `peel`。新入口必须说明遇到其它状态时是
+      close、return 还是 queue。
+
+验收：
+
+- 首次用户不用键盘也能发现翻页、立牌、鑑賞、单品解说。
+- deep link、gallery landing、look-card、runway、reduced-motion 均无状态串扰。
+- 每个 spread 的主事件能在 5-10 秒内被理解，不靠读一大段 HUD 文案。
+
+## Sprint 16 — commentary 数据生产闭环（P0）
+
+目标：把“每张图有哪些时尚单品、对应解说、人物对话”做成可重复生产流程，而不是一次性手写。
+
+- [ ] 固化 `commentary.json` 生产流程：从 `source.md` / prompt 抽候选单品 → 看 `main-visual.png` 与
+      `character-transparent.png` 人工确认 → 写入双语 commentary → 前端读取。
+- [ ] 每包保留 4-6 个 item，避免为填满热点而写弱单品；宁可少而准。
+- [ ] `part` 继续使用有限枚举：`jacket` / `top` / `bottom` / `dress` / `bag` / `shoes` / `accessory` /
+      `hair` / `makeup` / `other`。前端可按 part 给默认锚点，人工 anchor 只修偏差大处。
+- [ ] 增加 `voice`、`emotion`、`mouth`、`beat` 等可选字段时必须向后兼容；无语音时系统退化为字幕和吊牌。
+- [ ] 写一个轻量校验脚本：检查 JSON schema、voice 路径是否存在、item 数量、part 枚举、anchor 范围、locale 字段完整性。
+- [ ] 随机抽查 3 包：每包肉眼确认热点位置、日文语气、中文释义、表情联动是否合理。
+
+验收：
+
+- 新增/修改 commentary 不需要改 `magazineScene.js`。
+- 缺 voice 文件不报错，仍能完整跑字幕、吊牌、巡回。
+- schema 校验可以在本地一条命令跑完，并给出可读错误。
+
+## Sprint 17 — 语音数据与 GPT-SoVITS 云端训练（P1，私人 demo）
+
+目标：为杂志解说生成离线语音素材；只服务私人本地 demo，不把真人声优音色作为可发布资产。
+
+- [ ] 数据来源只记录用户自有或可明确授权的素材：已购买/拥有的游戏语音、Drama CD / character voice CD、
+      BD/DVD 中足够干净的单人对白、官方广播/访谈片段。避免来源不明的网盘包、二次整理包、盗版合集。
+- [ ] 建 `voice-dataset/README`（可放在私有目录，不进仓库）：记录来源、购买/拥有状态、用途限制、是否可公开、处理日期。
+- [ ] 切片标准：每句 2-8 秒，单人、无 BGM/SE/混响/重叠对白；爆音、笑声、尖叫、喘息、强情绪噪声直接删。
+- [ ] 标注标准：GPT-SoVITS `.list` 格式 `vocal_path|speaker_name|ja|text`；日语 ASR 可用 Faster Whisper，
+      但必须手工校对人名、语气词、片假名、标点。
+- [ ] 数据量优先级：1-3 分钟跑通管线；10-20 分钟做角色感初版；30-60 分钟做稳定 demo；不要用 1 小时脏数据换表面规模。
+- [ ] 训练路线：本机只做清洗/标注/试听；AutoDL/RunPod/Colab 租 NVIDIA 12GB-16GB 显存训练或微调。
+- [ ] 旧模型处理：三年前的 `G_*.pth / D_*.pth / config.json` 更像传统 VITS/MoeGoe/CJK VITS，不直接兼容当前
+      GPT-SoVITS。可用于临时生成参考音，但正式路线应优先用原始音频重新训 GPT-SoVITS。
+- [ ] 输出只落离线音频：生成 `assets/image-packs/N/voice/*.ogg`，不在前端接在线 TTS 服务。
+
+验收：
+
+- 生成 1 个包的完整 voice：`intro` + 4-6 个 item + `runwayIntro`。
+- 每条音频响度和尾部静音一致，听感不突兀。
+- 仓库不提交原始训练素材、不提交模型权重、不公开真人声优克隆音频。
+
+## Sprint 18 — 语音前端接入与口型同步（P1）
+
+目标：让语音成为 commentary 的增强层，而不是阻塞功能的依赖。
+
+- [ ] 前端按 `commentary.json` 的 `voice` 字段查找音频；不存在则静默退化为字幕。
+- [ ] WebAudio 总线补齐：语音播放、room tone ducking、打断/切页停止、重复点击去抖。
+- [ ] 口型同步先用 `AnalyserNode` 的 RMS 振幅驱动 mouth-open / mouth-closed 两格；没有 mouth 格时只做字幕，不强行闪动。
+- [ ] 下一轮素材生成 prompt 明确要求 expression sheet 包含闭嘴/张嘴两格，避免用不匹配表情硬凑口型。
+- [ ] 每句字幕与音频起止绑定：语音开始显示字幕，结束后按 0.6-1.2 秒淡出；用户翻页/退出 gallery/look-card 时立即清理。
+- [ ] 声音设置暂不做复杂 UI。第一版只提供“有音频则播放 / 用户首次交互后解锁音频 / 无音频退化”。
+
+验收：
+
+- 浏览器自动播放限制下不会报错；首次点击后可正常出声。
+- 语音播放中翻页、打开鑑賞、打开 look-card、startShow/endShow 都不会残留旧字幕或旧音频。
+- reduced-motion 不影响音频，但禁用嘴型/表情的快速抖动。
+
+## 沉淀为 skill 的门槛
+
+暂不做全局 Codex skill。等至少完成一轮真实实现并跑过验证后，再把可复用部分提升为
+`threejs-visual-system-audit` 或 `magazine-editorial-voice-pipeline` 类 skill。
+
+可提升的只有通用流程：资源体检、shader 机会识别、可选后处理门槛、commentary schema 校验、语音切片标注清单、
+真实浏览器视觉验证。不要把 ATELIER 的路径、行号、私有常量、真人声线来源写进全局 skill。
+
 ---
 
 # 功能 Roadmap（既有规划）

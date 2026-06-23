@@ -20,10 +20,15 @@ const coverFrontUrl = new URL("../assets/image/cover.png", import.meta.url).href
 const backCoverUrl = new URL("../assets/image/back-cover.png", import.meta.url).href;
 
 // Interior pages come from asset packs: every numeric folder under
-// assets/image-packs is one page, in numeric order. A pack contributes the
-// page print plus optional standee, expression-sheet, and runway-video extras.
-const packFileUrls = import.meta.glob(
-  "../assets/image-packs/*/images/{main-visual,background-only,character-transparent,expression-sheet,expression-sheet-transparent,action-sheet-transparent}.png",
+// assets/image-packs is one page, in numeric order. DOM reading keeps canonical
+// PNG page prints; WebGL-only standee/display art uses generated WebP variants.
+const packReaderFileUrls = import.meta.glob("../assets/image-packs/*/images/main-visual.png", {
+  eager: true,
+  query: "?url",
+  import: "default",
+});
+const packWebglFileUrls = import.meta.glob(
+  "../assets/image-packs/*/images-webgl/{background-only,character-transparent,expression-sheet,expression-sheet-transparent,action-sheet-transparent}.webp",
   {
     eager: true,
     query: "?url",
@@ -42,8 +47,15 @@ const packCommentaryData = import.meta.glob("../assets/image-packs/*/commentary.
 
 const PAGE_PACKS = (() => {
   const packs = new Map();
-  for (const [path, url] of Object.entries(packFileUrls)) {
-    const match = path.match(/image-packs\/(\d+)\/images\/([\w-]+)\.png$/);
+  for (const [path, url] of Object.entries(packReaderFileUrls)) {
+    const match = path.match(/image-packs\/(\d+)\/images\/main-visual\.png$/);
+    if (!match) continue;
+    const id = Number(match[1]);
+    if (!packs.has(id)) packs.set(id, { id });
+    packs.get(id)["main-visual"] = url;
+  }
+  for (const [path, url] of Object.entries(packWebglFileUrls)) {
+    const match = path.match(/image-packs\/(\d+)\/images-webgl\/([\w-]+)\.webp$/);
     if (!match) continue;
     const id = Number(match[1]);
     if (!packs.has(id)) packs.set(id, { id });
@@ -105,12 +117,16 @@ const TEXTURES = {
   wood: {
     color: "/pbr/wood_0066/wood_0066_color_2k.jpg",
     roughness: "/pbr/wood_0066/wood_0066_roughness_2k.jpg",
+    // Sprint 13b: runtime normal maps are 1024px variants; public filenames
+    // stay `_2k` to preserve existing URLs. See docs/resource-pipeline.md.
     normal: "/pbr/wood_0066/wood_0066_normal_opengl_2k.png",
     ao: "/pbr/wood_0066/wood_0066_ao_2k.jpg",
   },
   paper: {
     color: "/pbr/paper_0026/paper_0026_color_2k.jpg",
     roughness: "/pbr/paper_0026/paper_0026_roughness_2k.jpg",
+    // Sprint 13b: runtime normal maps are 1024px variants; public filenames
+    // stay `_2k` to preserve existing URLs. See docs/resource-pipeline.md.
     normal: "/pbr/paper_0026/paper_0026_normal_opengl_2k.png",
     ao: "/pbr/paper_0026/paper_0026_ao_2k.jpg",
   },
@@ -262,6 +278,8 @@ export class MagazineScene {
     this.standeeGuideShown = false;
     this.guideStandee = null;
     this.loadedTextures = [];
+    this.textureWarmupQueue = [];
+    this.textureWarmupSet = new Set();
     this.cameraTarget = new THREE.Vector3(-0.08, 0.04, -0.05);
     this.responsiveCameraA = new THREE.Vector3();
     this.responsiveCameraB = new THREE.Vector3();
@@ -582,8 +600,8 @@ export class MagazineScene {
       void this.loadTexture(imagePageUrls[i], { color: true })
         .then((texture) => {
           if (this.disposed) return;
-          this.renderer.initTexture(texture);
           this.pageMaterials[i] = this.createPrintedMaterial(texture, 0.74, 0.03);
+          this.queueTextureWarmup(texture);
           // Refresh settled spreads only; mid-turn surfaces and the back-cover
           // pose are swapped by their own completion handlers.
           if (this.state === "open" || this.state === "closed") {
@@ -653,6 +671,21 @@ export class MagazineScene {
     }
     this.renderer.compile(this.scene, this.camera);
     this.renderer.render(this.scene, this.camera);
+  }
+
+  queueTextureWarmup(texture) {
+    if (!texture || this.textureWarmupSet.has(texture)) return;
+    this.textureWarmupSet.add(texture);
+    this.textureWarmupQueue.push(texture);
+  }
+
+  drainTextureWarmupQueue(limit = 1) {
+    if (!this.textureWarmupQueue.length || typeof this.renderer.initTexture !== "function") return;
+    for (let warmed = 0; warmed < limit && this.textureWarmupQueue.length; warmed += 1) {
+      const texture = this.textureWarmupQueue.shift();
+      this.textureWarmupSet.delete(texture);
+      if (texture) this.renderer.initTexture(texture);
+    }
   }
 
   createPaperMaterial(color, roughness, normalStrength, side = THREE.FrontSide) {
@@ -4556,6 +4589,7 @@ export class MagazineScene {
       this.frameId = window.requestAnimationFrame(this.animate);
       return;
     }
+    this.drainTextureWarmupQueue(1);
 
     this.elapsedTime += delta;
     const elapsed = this.elapsedTime;
@@ -4718,6 +4752,8 @@ export class MagazineScene {
       this.lookCard.el.remove();
       this.lookCard = null;
     }
+    this.textureWarmupQueue.length = 0;
+    this.textureWarmupSet.clear();
     window.clearTimeout(this.cardShareFlashTimer);
     // BUG-DISPOSE-SHARE-TIMER (Sprint 6 / Iter 2): symmetric counterpart to the
     // line above — cardShareFlashTimer was cleared, shareFlashTimer was not.
