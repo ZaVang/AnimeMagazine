@@ -122,4 +122,16 @@ export const RENDER = {
     vignette: 0.2,
     runwayDelta: 0.3, // applyShowDim pulls vignette up by this on runway
   },
+
+  // --- Lightweight post grade (consumed by GrainShader) ----------------------
+  // Sprint 14 keeps renderer.toneMapping on THREE.NeutralToneMapping. This is a
+  // tiny post-grade inside the already-existing ShaderPass: warm the print-room
+  // highlights, hold ink density, and slightly desaturate the darkest corners
+  // without reintroducing bloom/DoF or a LUT asset.
+  grade: {
+    warmth: 0.018,
+    contrast: 0.055,
+    saturation: 0.985,
+    toe: 0.025,
+  },
 };

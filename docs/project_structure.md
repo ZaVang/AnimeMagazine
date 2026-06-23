@@ -9,7 +9,7 @@
 |------|------|
 | `index.html` | 入口 HTML，标题 `ATELIER アトリヱ MAY 2026`，挂 Google Fonts（Italiana / Shippori Mincho），`#root` + `/src/main.jsx`。**H1：`<head>` 含静态 OG/Twitter card meta（og:title/description/image=`/og-cover.png`/type、twitter:card=summary——OG-FIX 后由 summary_large_image 降级，因封面 og-cover.png 是 941×1672 竖图，large 卡会黑边，summary 用方形缩略更稳，且无横图素材故不硬产）+ description。硬约束（注释已写明）：SPA 静态站，meta 无法按 spread 动态化——所有深链分享的预览卡相同，per-spread 需 SSR，超本项目形态** |
 | `vite.config.js` | Vite 配置：React 插件、`assetsInclude **/*.exr`、**端口固定 5178** |
-| `package.json` | 依赖：three 0.184、page-flip 2.0.7、react 19、vite 8。脚本 dev/build/asset:audit/preview |
+| `package.json` | 依赖：three 0.184、page-flip 2.0.7、react 19、vite 8。脚本 dev/build/asset:audit/visual:smoke/preview |
 | `README.md` | 仅标题（信息少，背景看 docs/） |
 | `docs/FUTURE.md` | Roadmap + 12 个已结案 sprint 的完整记录（审计修复史 + 未实施功能规划） |
 | `docs/messenger-visual-reference.md` | Messenger / Three.js 视觉叙事参考笔记：shader-first、资源压缩、可选后处理、叙事节奏；明确先沉淀项目 docs，暂不提升为全局 skill |
@@ -26,9 +26,9 @@
 | `src/preferences.js` | ~113 | **持久化偏好底座（C6）**：单一版本化命名空间键 `atelier.prefs.v1`（`{locale,skipIntro,guidedOnce,lastSpread}`，**CLEAN-1 删 `volume` / CLEAN-2 第 5 轮删 0 引用的 `muted`**）；`loadPreferences`/`savePreferences`/`DEFAULT_PREFERENCES`；缺键/损坏值/存储不可用安全回退默认、不抛错（probe localStorage；旧 blob 残留 `volume`/`muted` 由 sanitize 静默丢弃）。**PREF-1（Iter 4）：新增字段级 `sanitizePatch(patch, current)` 用于 savePreferences merge 路径——坏 patch 字段不再 wipe caller 已存 good 值；blob 级 `sanitize` 保留给 loadPreferences 外部 storage 入口（两者并存）**。被 C7 locale / C9 skip-intro / E5 深链接入。**注意区分 `video.muted`（magazineScene.js 原生属性，未删）** |
 | `src/deeplink.js` | ~95 | **深链编解码纯逻辑（E5 + CODEC-1）**：`parseDeepLink(search)→{spread,locale,item}`（越界/非法→null，per-field 回退，永不抛）、`buildShareUrl(base,{spread,locale,item})`、`hasDeepLinkState`。无 DOM/场景依赖、可 headless 断言。URL 参数 `spread`（非负整数锚）+ `lang`（ja\|zh）+ **`item`（CODEC-1：非负整数，optional + nested 依附 spread——孤立 item 忽略、spread null 时 item 一律 null/不输出）** |
 | `src/lookCard.js` | ~115 | **CARD-1 卡片数据层纯逻辑**：`buildSpreadCommentaryIndex(STANDEE_SOURCES, pageToSpread)→Map<spread,commentary>`（**R-CARD-DATASOURCE 头号红线：源自 module-level eager commentary + pageToSpread 反查，绝不碰 this.standees**）、`spreadHasCommentary(index,spread)`（入口 guard + 卡数据共用判定）、`buildCardViewModel(index,spread,locale,activeItem)→{title,character,runwayIntro,items[],activeItem}`（per-locale，越界 item→activeItem null）、`isItemInRange`。无 DOM/场景依赖、可 headless 断言 |
-| `src/render-config.js` | ~125 | **TECH-1（第 6 轮 Iter 3 抽离）渲染基线常量集合**：`export const RENDER = {renderer:{outputColorSpace,toneMapping,exposure,shadowType}, scene:{bgHex,fogHex,fogNear,fogFar,envIntensity}, lights:{hemi,key,pool,fill,rim}, envMap:{printed,paper,table,spine,coverEdge,standee,swingTag,expression,colophon}, grain:{amount,vignette,runwayDelta}}`。**纯数据 / 0 this 依赖 / 0 异步**；为 tonemap 切换把回归面积从"散落 17 处 grep"压缩到"看一个文件"。**TONEMAP-1 Stage 1（Iter 4）落定**：`toneMapping = NeutralToneMapping`（ACES→Neutral）+ `exposure = 1.18`（补 Neutral 5% 亮度损失）—— Stage 2 fallback (rim/envMap/envIntensity/exposure 降配) NOT 执行（Stage 1 已过 Tier B：avgLum 118 / clipFrac 0 / rim peak 127.7）。**绝不抽**：light.position / shadow.camera / SpotLight 物理参数 (distance/angle/penumbra/decay) / 材质 baseColor hex (spineMaterial / coverEdge 0x2a2018 留在 magazineScene.js)。**绝不包装 light.color**：hex 必须是 numeric literal，由 light 构造函数走默认 sRGB→linear 路径（Iter 2 红线 ③，Iter 4 三方再次延续） |
-| `src/styles.css` | ~1233 | 全部 UI 样式：HUD（`.hud-read`/`.hud-tour`/`.hud-locale`/`.hud-share`/**`.hud-card`=CARD-1** pill、`.hud-masthead-actions` 报头动作行、`.hud-character` 报头跟随块）、loader、cursor、鑑賞 overlay、触控/键盘提示（`pointer:coarse` **或** `max-width:640px` 切换；窄屏 `.hud-touch` 上抬 = A1）、响应式。**G1：`.gallery-toc`/`.gallery-thumb` 等。I1：`@media(max-width:640px)` 收口底部 HUD 列（列高 159px→~124px）。CARD-1：`.look-card`（z-index:8 寄生 overlay、scrim+paper sheet、纸色 #f6efe0/墨 rgba(30,24,18,*)/Shippori Mincho 纸艺语汇）/`.look-card-sheet`(375px 全屏可滚 sheet / 1280px 居中 max 560px)/`.look-card-item`(`.is-active` 高亮)/`.look-card-backlink`/`.look-card-share`，reduced-motion 媒体块补 `.look-card` 无过渡** |
-| `src/magazineScene.js` | ~4772 | **核心**：three.js 场景 + 全部交互逻辑（下表为行号地图）。TECH-1（Iter 3）后顶部 import 增加 `./render-config.js`；Iter 4 RACE-B-小批 +21 行（3 guards + 解释性注释，openLookCard 头 / hudCard click / toggleGallery 头各 1 处）；Sprint 13a 新增 background texture GPU warmup queue（后台页加载完成入队，animate 每帧 drain 1 个，鑑賞打开时仍 early return）。常量已搬到 render-config.js，逻辑 0 变化 |
+| `src/render-config.js` | ~137 | **TECH-1（第 6 轮 Iter 3 抽离）渲染基线常量集合**：`export const RENDER = {renderer:{outputColorSpace,toneMapping,exposure,shadowType}, scene:{bgHex,fogHex,fogNear,fogFar,envIntensity}, lights:{hemi,key,pool,fill,rim}, envMap:{printed,paper,table,spine,coverEdge,standee,swingTag,expression,colophon}, grain:{amount,vignette,runwayDelta}, grade:{warmth,contrast,saturation,toe}}`。**纯数据 / 0 this 依赖 / 0 异步**；为 tonemap/post-grade 切换把回归面积从"散落 17 处 grep"压缩到"看一个文件"。**TONEMAP-1 Stage 1（Iter 4）落定**：`toneMapping = NeutralToneMapping`（ACES→Neutral）+ `exposure = 1.18`（补 Neutral 5% 亮度损失）—— Stage 2 fallback (rim/envMap/envIntensity/exposure 降配) NOT 执行（Stage 1 已过 Tier B：avgLum 118 / clipFrac 0 / rim peak 127.7）。**Sprint 14**：轻量 post grade 只接入既有 GrainShader pass，不改变 toneMapping。**绝不抽**：light.position / shadow.camera / SpotLight 物理参数 (distance/angle/penumbra/decay) / 材质 baseColor hex (spineMaterial / coverEdge 0x2a2018 留在 magazineScene.js)。**绝不包装 light.color**：hex 必须是 numeric literal，由 light 构造函数走默认 sRGB→linear 路径（Iter 2 红线 ③，Iter 4 三方再次延续） |
+| `src/styles.css` | ~1238 | 全部 UI 样式：HUD（`.hud-read`/`.hud-tour`/`.hud-locale`/`.hud-share`/**`.hud-card`=CARD-1** pill、`.hud-masthead-actions` 报头动作行、`.hud-character` 报头跟随块）、loader、cursor、鑑賞 overlay、触控/键盘提示（`pointer:coarse` **或** `max-width:640px` 切换；窄屏 `.hud-touch` 上抬 = A1，`.hud-feature` 装饰竖排隐藏以避开 controls/standee）、响应式。**G1：`.gallery-toc`/`.gallery-thumb` 等。I1：`@media(max-width:640px)` 收口底部 HUD 列（列高 159px→~124px）。CARD-1：`.look-card`（z-index:8 寄生 overlay、scrim+paper sheet、纸色 #f6efe0/墨 rgba(30,24,18,*)/Shippori Mincho 纸艺语汇）/`.look-card-sheet`(375px 全屏可滚 sheet / 1280px 居中 max 560px)/`.look-card-item`(`.is-active` 高亮)/`.look-card-backlink`/`.look-card-share`，reduced-motion 媒体块补 `.look-card` 无过渡** |
+| `src/magazineScene.js` | ~4978 | **核心**：three.js 场景 + 全部交互逻辑（下表为行号地图）。TECH-1（Iter 3）后顶部 import 增加 `./render-config.js`；Iter 4 RACE-B-小批 +21 行；Sprint 13a 新增 background texture GPU warmup queue。**Sprint 14**：新增本地 `MATERIAL_VISUALS` + `onBeforeCompile` paper/standee material layers、turn leaf cue overlay、GrainShader post grade；不改 DOM 鑑賞、raw standee TextureLoader、camera framing 或 toneMapping。 |
 
 ## src/magazineScene.js 行号地图（改前先 Read 对应段）
 
@@ -41,19 +41,19 @@
 | 364 | `createRenderer` | WebGLRenderer、DPR/SSAA 上下限（qualityCeil/Floor）。**TECH-1（Iter 3）：outputColorSpace/toneMapping/exposure/shadowMap.type 全部读 `RENDER.renderer.*`** |
 | 418 | `createScene` | 场景、雾、环境。**TECH-1：bg/fog hex + fogNear/fogFar/envIntensity 读 `RENDER.scene.*`；bg/fog 仍走 `setHex(LinearSRGBColorSpace)` 路径（Iter 2 红线）** |
 | 462 | `createCamera` | 相机 + **竖屏响应式取景**（portraitAmount 等参数化） |
-| 499 | `createPostProcessing` | EffectComposer、HalfFloat RT、**BokehPass（默认 enabled=false）**、grainPass |
+| 550 | `createPostProcessing` | EffectComposer、HalfFloat RT、**BokehPass（默认 enabled=false）**、grainPass（Sprint 14：GrainShader 同时承载轻量 post grade；reduced-motion 下 pass disabled） |
 | 534/581/652-666 | `loadTextures` / `startBackgroundPageLoads` / `warmTextures` + warmup queue | 资源加载。首屏 cover/first spread 仍阻塞加载并由 `warmTextures()` 立即 warm；后台页加载完成后 `queueTextureWarmup()`，由 `animate()` 每帧 `drainTextureWarmupQueue(1)` |
-| 630 | `createPrintedMaterial` / `createPaperMaterial`(675) | 印刷/纸张 PBR 材质。**TECH-1：envMapIntensity 读 `RENDER.envMap.printed/.paper`** |
+| 681/729/762/808 | `applyPaperShader` / `applyStandeeShader` / `createPrintedMaterial` / `createPaperMaterial` | 印刷/纸张/立牌 PBR 材质。**TECH-1：envMapIntensity 读 `RENDER.envMap.printed/.paper/.standee`**；**Sprint 14：纸张/印刷材质通过 `onBeforeCompile` 加静态 fiber、ink micro-contrast 与 edge shade；立牌 alpha edge softening + rim 只改渲染材质，不碰 raw TextureLoader / NCC / 锚点** |
 | 697 | `createLights` | 灯光 + 阴影贴图。**TECH-1：5 光的 color hex + intensity 读 `RENDER.lights.{hemi,key,pool,fill,rim}`；position/SpotLight 物理参数留字面量（Scout C-5 边界）。VIS-RIM-BOOST（Iter 3）：rim.intensity 0.9→1.5 经 render-config 锁定。VIS-TABLE-SYM（Iter 3）：hemi.intensity 0.8→0.95（render-config）+ poolLight.position.x -1.1→-0.6（magazineScene.js 内）** |
 | 789 | `createTable` / `createDust`(818) / `updateDust`(865) | 木桌、灰尘微粒。**TECH-1：木桌 envMapIntensity 读 `RENDER.envMap.table`** |
 | 880 | `createMagazine` | 杂志总装 |
 | 905 | `createPageBlocks` | 页块 + 书脊。**TECH-1：spineMaterial envMapIntensity 读 `RENDER.envMap.spine`；color 0x2a2018 留字面量（材质 baseColor 不抽，Scout C-5）** |
 | 960 | `createStaticPages` / `createFlatPage`(976) / `createCover`(985) | 静态页/封面几何。**TECH-1：封面 edgeMaterial envMapIntensity 读 `RENDER.envMap.coverEdge`；color 0x2a2018 留字面量** |
-| 1042 | `createTurningLeaf` / `createLeafGeometry`(1064) / `updateLeafShape`(1105) | 翻页叶片几何与形变 |
+| 1176/1224/1254/1295/1346 | `createTurnCueMaterial` / `createTurningLeaf` / `createLeafGeometry` / `updateLeafShape` / `updateTurnCue` | 翻页叶片几何与形变。**Sprint 14：bend cue 是活动 leaf 的透明 overlay，随 peel/turn progress 更新；静止页面不共享动态 uniform** |
 | 1179-1240 | `spreadLeftPage`(1179)/`spreadRightPage`(1183)/`pageToSpread`(1195)/`spreadCommentaryIndex`(1211)/`applySpread`(1240) | 正向 spread→page + **反向 `pageToSpread()` 单一真相源（D1，buildStandee 与 D2 退鑑賞回写共用，越界返 null）** + **CARD-1 `spreadCommentaryIndex()`：lazily memoize `buildSpreadCommentaryIndex(STANDEE_SOURCES, pageToSpread)`（一处建、入口 guard + 卡数据两处用、绝不碰 this.standees）** + open 态材质落定 |
 | 1525 | `updateParallax` | 鼠标视差 |
 | 1579/1596 | `updatePeel`(1579)/`loadStandees`(1596) | 立牌逐帧 build（**C9b：每 build 后补 `syncMasthead(true)`**）/ 翻页掀起手感 |
-| 1791 | `buildStandee` | **立牌构建**（逐像素 NCC 分析图/表，依赖未翻转贴图；挂 `commentary`+`spread`，**spread 归属调 `pageToSpread()`**=D1，C8 报头按 `spread` 查角色）。**TECH-1：figure envMapIntensity 读 `RENDER.envMap.standee`** |
+| 1996 | `buildStandee` | **立牌构建**（逐像素 NCC 分析图/表，依赖未翻转贴图；挂 `commentary`+`spread`，**spread 归属调 `pageToSpread()`**=D1，C8 报头按 `spread` 查角色）。**TECH-1：figure envMapIntensity 读 `RENDER.envMap.standee`**；**Sprint 14：figure material 接 `applyStandeeShader`，透明边缘融合不改变 action/pose surface hot-swap** |
 | 1918 | `buildCommentaryUI` | 解说 UI（commentary.json 驱动，**已实现并接线**：热点圆点 + swing tag + 纸绳，含发现性 bloom）。**TECH-1：tag envMapIntensity 读 `RENDER.envMap.swingTag`** |
 | 2021 | `drawTag` | 立牌 swing tag 画到 canvas 纹理（单品名 + tags，**按 `this.locale` 择一** = C7；locale 切换时 `setLocale` 对可见 tag 重画） |
 | 2057 | `showCommentaryItem` | 单件解说（设字幕 + 画 tag），入口 `fadeHint()` 让位字幕（A2） |
@@ -82,7 +82,7 @@
 | 4545/4564 | `handleResize`(4545) / `animate`(4564) | resize / 主循环（animate 在 `gallery` early-return 后每帧 drain 1 个 queued texture，并调 `syncTourButton`+`syncMasthead`） |
 | 4621/4631 | `anyStandeeUnfolded`(4621)/`shadowsNeedUpdate`(4631) | 阴影按需刷新判定 |
 | 4664/4708 | `trackFrameQuality`(4664)/`applyQuality`(4708) | 自适应画质（持续掉帧→降分辨率档位） |
-| 4715 | `dispose` | 清理（含 queued texture warmup 清空、`window.__magazineScene` 注销） |
+| 4921 | `dispose` | 清理（含 queued texture warmup 清空、`window.__magazineScene` 注销） |
 | **render-config.js** | — | TECH-1 抽离的渲染基线常量集合（见上方表格） |
 
 ## assets/ 与 public/
@@ -95,7 +95,7 @@
 | `assets/pbr/`、`public/pbr/` | 纸张 paper_0026 / 木桌 wood_0066 的 color/normal/roughness/ao；`assets/pbr/` 保留原始素材包，`public/pbr/` 里两张 normal map 是 1024px runtime 版本但为兼容现有 URL 仍沿用 `_2k` 文件名 |
 | `assets/backup/` | 备份素材（如 cover-extra-2026.png） |
 | `public/audio/`（规划） | 音效：page-turn-01~03、cover-open/close、room-tone、runway —— **多数仍空缺** |
-| `scripts/` | 素材/审计脚本：`asset-audit.mjs`（无依赖 Node 资源体积审计 + WebGL WebP drift check）、`generate-webgl-variants.mjs`（用 ffmpeg/libwebp 生成 WebGL-only WebP display copies）、`create_live2d_draft_psd.py`、`create_popup_psd.py` |
+| `scripts/` | 素材/审计/视觉验证脚本：`asset-audit.mjs`（无依赖 Node 资源体积审计 + WebGL WebP drift check）、`visual-smoke.mjs`（无新增依赖；启动 Vite + 系统 Chrome/Edge headless，经 CDP 覆盖 1280x800 与 375x812、截图到 `tmp/visual-smoke/` 并断言 WebGL 非空/Bokeh off/toneMapping config/reduced-motion grain off）、`generate-webgl-variants.mjs`（用 ffmpeg/libwebp 生成 WebGL-only WebP display copies）、`create_live2d_draft_psd.py`、`create_popup_psd.py` |
 | `prompts/` | 各包生成 prompt（1.md~18.md） |
 
 ## docs/（product-loop 通信，见 SPRINT.md 表）

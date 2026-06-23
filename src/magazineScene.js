@@ -162,6 +162,28 @@ const PEEL_GRAB_ZONE = PAGE_WIDTH * 0.6;
 const DRAG_COMMIT = 0.3;
 const DRAG_COMMIT_VELOCITY = 0.9;
 
+const MATERIAL_VISUALS = {
+  printed: {
+    fiberStrength: 0.018,
+    inkContrast: 0.048,
+    edgeShade: 0.045,
+  },
+  paper: {
+    fiberStrength: 0.014,
+    inkContrast: 0.0,
+    edgeShade: 0.026,
+  },
+  standee: {
+    rim: 0.09,
+    alphaSoftLow: 0.20,
+    alphaSoftHigh: 0.82,
+  },
+  turn: {
+    shadow: 0.18,
+    highlight: 0.12,
+  },
+};
+
 const UP_AXIS = new THREE.Vector3(0, 1, 0);
 const RIG_KEYS = ["KeyW", "KeyA", "KeyS", "KeyD", "KeyQ", "KeyE"];
 
@@ -191,6 +213,10 @@ const GrainShader = {
     // one source of truth (no more silent desync).
     uAmount: { value: RENDER.grain.amount },
     uVignette: { value: RENDER.grain.vignette },
+    uGradeWarmth: { value: RENDER.grade.warmth },
+    uGradeContrast: { value: RENDER.grade.contrast },
+    uGradeSaturation: { value: RENDER.grade.saturation },
+    uGradeToe: { value: RENDER.grade.toe },
   },
   vertexShader: /* glsl */ `
     varying vec2 vUv;
@@ -204,6 +230,10 @@ const GrainShader = {
     uniform float uTime;
     uniform float uAmount;
     uniform float uVignette;
+    uniform float uGradeWarmth;
+    uniform float uGradeContrast;
+    uniform float uGradeSaturation;
+    uniform float uGradeToe;
     varying vec2 vUv;
 
     float hash(vec2 p) {
@@ -216,6 +246,11 @@ const GrainShader = {
       color.rgb += grain * uAmount;
       float d = distance(vUv, vec2(0.5, 0.46));
       color.rgb *= 1.0 - smoothstep(0.40, 0.94, d) * uVignette;
+      float luma = dot(color.rgb, vec3(0.299, 0.587, 0.114));
+      color.rgb = mix(vec3(luma), color.rgb, uGradeSaturation);
+      color.rgb = mix(color.rgb, (color.rgb - 0.5) * (1.0 + uGradeContrast) + 0.5, 0.65);
+      color.rgb += vec3(uGradeWarmth, uGradeWarmth * 0.45, -uGradeWarmth * 0.35) * smoothstep(0.20, 0.92, luma);
+      color.rgb *= 1.0 - uGradeToe * (1.0 - smoothstep(0.03, 0.38, luma));
       gl_FragColor = color;
     }
   `,
@@ -643,6 +678,87 @@ export class MagazineScene {
     return texture;
   }
 
+  applyPaperShader(material, config) {
+    material.onBeforeCompile = (shader) => {
+      shader.uniforms.uPaperFiberStrength = { value: config.fiberStrength };
+      shader.uniforms.uPaperInkContrast = { value: config.inkContrast };
+      shader.uniforms.uPaperEdgeShade = { value: config.edgeShade };
+      shader.fragmentShader = shader.fragmentShader
+        .replace(
+          "#include <common>",
+          /* glsl */ `
+#include <common>
+uniform float uPaperFiberStrength;
+uniform float uPaperInkContrast;
+uniform float uPaperEdgeShade;
+float atelierPaperHash(vec2 p) {
+  return fract(sin(dot(p, vec2(41.23, 289.17))) * 43758.5453123);
+}
+float atelierPaperFiber(vec2 uv) {
+  float longFiber = sin((uv.y * 112.0 + sin(uv.x * 31.0) * 0.85) * 6.2831853);
+  float crossFiber = sin((uv.x * 74.0 + uv.y * 9.0) * 6.2831853);
+  float fleck = atelierPaperHash(floor(uv * vec2(92.0, 148.0)));
+  return longFiber * 0.45 + crossFiber * 0.25 + (fleck - 0.5) * 0.55;
+}
+`,
+        )
+        .replace(
+          "#include <map_fragment>",
+          /* glsl */ `
+#include <map_fragment>
+#ifdef USE_MAP
+  float paperLuma = dot(diffuseColor.rgb, vec3(0.299, 0.587, 0.114));
+  float inkMask = smoothstep(0.88, 0.20, paperLuma);
+  float paperFiber = atelierPaperFiber(vMapUv);
+  diffuseColor.rgb += paperFiber * uPaperFiberStrength * (0.42 + inkMask * 0.58);
+  diffuseColor.rgb = mix(
+    diffuseColor.rgb,
+    (diffuseColor.rgb - 0.5) * (1.0 + uPaperInkContrast * inkMask) + 0.5,
+    0.72
+  );
+  float paperEdge = max(abs(vMapUv.x - 0.5) * 2.0, abs(vMapUv.y - 0.5) * 2.0);
+  diffuseColor.rgb *= 1.0 - smoothstep(0.80, 1.0, paperEdge) * uPaperEdgeShade;
+#endif
+`,
+        );
+    };
+    material.customProgramCacheKey = () =>
+      `paper-${config.fiberStrength}-${config.inkContrast}-${config.edgeShade}`;
+  }
+
+  applyStandeeShader(material) {
+    const config = MATERIAL_VISUALS.standee;
+    material.onBeforeCompile = (shader) => {
+      shader.uniforms.uStandeeRim = { value: config.rim };
+      shader.uniforms.uStandeeAlphaLow = { value: config.alphaSoftLow };
+      shader.uniforms.uStandeeAlphaHigh = { value: config.alphaSoftHigh };
+      shader.fragmentShader = shader.fragmentShader
+        .replace(
+          "#include <common>",
+          /* glsl */ `
+#include <common>
+uniform float uStandeeRim;
+uniform float uStandeeAlphaLow;
+uniform float uStandeeAlphaHigh;
+`,
+        )
+        .replace(
+          "#include <map_fragment>",
+          /* glsl */ `
+#include <map_fragment>
+#ifdef USE_MAP
+  float standeeAlpha = texture2D(map, vMapUv).a;
+  diffuseColor.a = smoothstep(uStandeeAlphaLow, uStandeeAlphaHigh, diffuseColor.a);
+  float cutEdge = (1.0 - smoothstep(0.70, 1.0, standeeAlpha)) * smoothstep(0.18, 0.75, standeeAlpha);
+  vec3 paperRim = vec3(0.070, 0.052, 0.032) + diffuseColor.rgb * 0.18;
+  diffuseColor.rgb = mix(diffuseColor.rgb, diffuseColor.rgb + paperRim, cutEdge * uStandeeRim);
+#endif
+`,
+        );
+    };
+    material.customProgramCacheKey = () => `standee-soft-cutout-${config.rim}`;
+  }
+
   createPrintedMaterial(printMap, roughness, normalStrength) {
     const material = new THREE.MeshStandardMaterial({
       map: printMap,
@@ -661,6 +777,7 @@ export class MagazineScene {
       // matches Phase-2 "coated paper" aspiration).
       envMapIntensity: RENDER.envMap.printed,
     });
+    this.applyPaperShader(material, MATERIAL_VISUALS.printed);
     this.disposables.push(material);
     return material;
   }
@@ -704,6 +821,7 @@ export class MagazineScene {
       envMapIntensity: RENDER.envMap.paper,
       side,
     });
+    this.applyPaperShader(material, MATERIAL_VISUALS.paper);
     this.disposables.push(material);
     return material;
   }
@@ -1055,6 +1173,54 @@ export class MagazineScene {
 
   // --- Bending leaf ----------------------------------------------------------
 
+  createTurnCueMaterial() {
+    const material = new THREE.ShaderMaterial({
+      uniforms: {
+        uCue: { value: 0 },
+        uDirection: { value: 1 },
+        uProgress: { value: 0 },
+        uShadow: { value: MATERIAL_VISUALS.turn.shadow },
+        uHighlight: { value: MATERIAL_VISUALS.turn.highlight },
+      },
+      vertexShader: /* glsl */ `
+        varying vec2 vUv;
+        void main() {
+          vUv = uv;
+          gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+        }
+      `,
+      fragmentShader: /* glsl */ `
+        uniform float uCue;
+        uniform float uDirection;
+        uniform float uProgress;
+        uniform float uShadow;
+        uniform float uHighlight;
+        varying vec2 vUv;
+
+        void main() {
+          float spanUv = uDirection > 0.0 ? vUv.x : 1.0 - vUv.x;
+          float rootShade = exp(-pow((spanUv - 0.18) / 0.16, 2.0));
+          float freeGlance = exp(-pow((spanUv - mix(0.58, 0.82, uProgress)) / 0.18, 2.0));
+          float verticalFalloff = smoothstep(0.02, 0.18, vUv.y) * smoothstep(0.98, 0.78, vUv.y);
+          float shadow = rootShade * uShadow;
+          float highlight = freeGlance * uHighlight;
+          float alpha = clamp((shadow + highlight) * uCue * verticalFalloff, 0.0, 0.12);
+          vec3 tone = mix(vec3(0.10, 0.075, 0.045), vec3(1.0, 0.82, 0.58), highlight / max(shadow + highlight, 0.001));
+          gl_FragColor = vec4(tone, alpha);
+        }
+      `,
+      transparent: true,
+      depthWrite: false,
+      depthTest: true,
+      side: THREE.DoubleSide,
+      polygonOffset: true,
+      polygonOffsetFactor: -1,
+      polygonOffsetUnits: -1,
+    });
+    this.disposables.push(material);
+    return material;
+  }
+
   createTurningLeaf() {
     this.turningPage = new THREE.Group();
     this.turningPage.position.set(0, TURN_BASE_Y, 0);
@@ -1072,7 +1238,15 @@ export class MagazineScene {
       mesh.frustumCulled = false;
     }
 
-    this.turningPage.add(this.turnFront, this.turnBack);
+    this.turnCueMaterial = this.createTurnCueMaterial();
+    this.turnShadeFront = new THREE.Mesh(this.leafFrontGeometry, this.turnCueMaterial);
+    this.turnShadeBack = new THREE.Mesh(this.leafBackGeometry, this.turnCueMaterial);
+    for (const mesh of [this.turnShadeFront, this.turnShadeBack]) {
+      mesh.frustumCulled = false;
+      mesh.renderOrder = 2;
+    }
+
+    this.turningPage.add(this.turnFront, this.turnBack, this.turnShadeFront, this.turnShadeBack);
     this.magazine.add(this.turningPage);
     this.updateLeafShape(0, 1, false);
   }
@@ -1166,6 +1340,21 @@ export class MagazineScene {
     backA.normal.needsUpdate = true;
     this.leafFrontGeometry.computeBoundingSphere();
     this.leafBackGeometry.computeBoundingSphere();
+    this.updateTurnCue(progress, direction, stiff, t);
+  }
+
+  updateTurnCue(progress, direction, stiff, t) {
+    if (!this.turnCueMaterial) return;
+    const peelCue = !this.turn && this.peel?.side
+      ? THREE.MathUtils.clamp(progress / PEEL_AMOUNT, 0, 1) * 0.55
+      : 0;
+    const flexCue = Math.max(Math.sin(Math.PI * t), peelCue) * (stiff ? 0.35 : 1);
+    this.turnCueMaterial.uniforms.uCue.value = flexCue;
+    this.turnCueMaterial.uniforms.uDirection.value = direction > 0 ? 1 : -1;
+    this.turnCueMaterial.uniforms.uProgress.value = THREE.MathUtils.clamp(progress, 0, 1);
+    const visible = flexCue > 0.015;
+    if (this.turnShadeFront) this.turnShadeFront.visible = visible;
+    if (this.turnShadeBack) this.turnShadeBack.visible = visible;
   }
 
   // --- Spread model -----------------------------------------------------------
@@ -1851,6 +2040,7 @@ export class MagazineScene {
       roughnessMap: this.paperRoughness,
       envMapIntensity: RENDER.envMap.standee,
     });
+    this.applyStandeeShader(material);
     const geometry = new THREE.PlaneGeometry(1, 1);
     this.disposables.push(geometry, material);
 

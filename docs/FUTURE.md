@@ -232,16 +232,24 @@ defer（不阻塞 13b 合并）：
 - 已做 1280x800 与 375x812 的 WebGL smoke：page 7 立牌可起立、贴图走 `images-webgl/*.webp`、无 4xx；更广覆盖的肉眼 QA 仍保留。
 - 鑑賞层仍是 DOM `<img>`，不退回 canvas flipbook。
 
-## Sprint 14 — 纸张/印刷 shader 与轻量色彩分级（P1）
+## Sprint 14 — 纸张/印刷 shader 与轻量色彩分级（P1，已完成）
 
 目标：学习 Messenger 的 shader-first 思路，把“高级感”更多放到 GPU 规则里，而不是继续堆 PNG。
 
-- [ ] 做一个 `PrintedPaperShader` 或等价材质层：纸纤维、墨色微对比、页面边缘轻微暗角、受光方向高光 breakup。
-- [ ] 翻页叶片加入 bend-dependent 高光/阴影，让页面弯折时有纸张厚度和受力感。
-- [ ] 立牌材质加入克制的 rim/soft cutout 融合，减少“平贴纸片”的观感；不改变现有锚点和 commentary 数据源。
-- [ ] 统一轻量 color grade：优先做小型 ShaderPass/LUT 风格映射，配置仍收敛到 `render-config.js`。
-- [ ] reduced-motion 下禁用所有时间驱动装饰；静态纸纹可以保留，动态噪声必须关闭或冻结到不可感知。
-- [ ] 不默认重开 BokehPass。DoF 仍是永久 backlog，除非有新的像素/真机证据证明收益大于帧成本。
+- [x] 做一个 `PrintedPaperShader` 或等价材质层：纸纤维、墨色微对比、页面边缘轻微暗角、受光方向高光 breakup。
+- [x] 翻页叶片加入 bend-dependent 高光/阴影，让页面弯折时有纸张厚度和受力感。
+- [x] 立牌材质加入克制的 rim/soft cutout 融合，减少“平贴纸片”的观感；不改变现有锚点和 commentary 数据源。
+- [x] 统一轻量 color grade：优先做小型 ShaderPass/LUT 风格映射，配置仍收敛到 `render-config.js`。
+- [x] reduced-motion 下禁用所有时间驱动装饰；静态纸纹可以保留，动态噪声必须关闭或冻结到不可感知。
+- [x] 不默认重开 BokehPass。DoF 仍是永久 backlog，除非有新的像素/真机证据证明收益大于帧成本。
+
+完成记录：
+
+- 印刷页/封面/纸背继续使用现有 page/cover texture 与 paper PBR maps；材质层通过 `onBeforeCompile` 加入静态纸纤维、墨色微对比与边缘压暗，不新增 raster asset。
+- 活动翻页叶片增加独立透明 bend cue overlay，只随 peel/turn 可见；settled pages 不共享动态 uniform。
+- 立牌材质保留 raw `TextureLoader` 贴图和 NCC/锚点路径，仅在渲染材质里做 alpha edge softening 与克制 rim。
+- 轻量 color grade 接入既有 GrainShader，参数集中在 `render-config.js`；BokehPass 默认仍关闭，tone mapping 仍为 `THREE.NeutralToneMapping`。
+- `npm run visual:smoke` 覆盖 1280x800 desktop 与 375x812 mobile：截图写入 `tmp/visual-smoke/`，两端 WebGL 非空、page 7 standee 可起立；mobile 以 reduced-motion 模拟运行且 grain pass disabled。
 
 验收：
 

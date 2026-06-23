@@ -360,6 +360,10 @@ body {
    baseline — ends up overlapping both. Lift it clear above the caption band and
    the tallest the pill column reaches. Wide viewports keep the corner anchor. */
 @media (max-width: 640px) {
+  .hud-feature {
+    display: none;
+  }
+
   .hud-touch {
     bottom: calc(max(24px, env(safe-area-inset-bottom)) + 168px);
   }
