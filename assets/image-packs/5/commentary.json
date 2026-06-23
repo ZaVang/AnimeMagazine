@@ -56,7 +56,7 @@
     },
     {
       "id": "blank-book",
-      "part": "prop",
+      "part": "other",
       "anchor": [0.47, 0.47],
       "expression": "thinking",
       "name": { "zh": "无文字书本", "ja": "文字のない本" },

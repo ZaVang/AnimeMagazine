@@ -20,7 +20,7 @@
   "items": [
     {
       "id": "dark-long-coat",
-      "part": "coat",
+      "part": "jacket",
       "anchor": [0.52, 0.42],
       "expression": "neutral",
       "name": { "zh": "深色长款大衣", "ja": "ダークカラーのロングコート" },
@@ -47,7 +47,7 @@
     },
     {
       "id": "blank-old-book",
-      "part": "prop",
+      "part": "other",
       "anchor": [0.45, 0.48],
       "expression": "thinking",
       "name": { "zh": "无文字旧书", "ja": "文字のない古書" },

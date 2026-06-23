@@ -47,7 +47,7 @@
     },
     {
       "id": "fabric-swatch",
-      "part": "prop",
+      "part": "other",
       "anchor": [0.43, 0.47],
       "expression": "thinking",
       "name": { "zh": "布料样本", "ja": "ファブリックスワッチ" },

@@ -1,6 +1,6 @@
 # Asset Audit
 
-Generated: 2026-06-23T12:30:38.567Z
+Generated: 2026-06-23T13:17:00.396Z
 
 ## Command
 
@@ -9,7 +9,7 @@ Generated: 2026-06-23T12:30:38.567Z
 ## Summary
 
 - Files audited: 558
-- Total bytes: 742865882
+- Total bytes: 742865924
 - Total size: 708.5 MB
 - Scope: `assets/`, `public/`, and `dist/` when present.
 
@@ -21,8 +21,8 @@ Generated: 2026-06-23T12:30:38.567Z
 
 | Key | Files | Bytes | Size |
 |---|---:|---:|---:|
-| `source assets` | 444 | 629386791 | 600.2 MB |
-| `built dist` | 105 | 98239510 | 93.7 MB |
+| `source assets` | 444 | 629386812 | 600.2 MB |
+| `built dist` | 105 | 98239531 | 93.7 MB |
 | `source public` | 9 | 15239581 | 14.5 MB |
 
 ## Totals by extension
@@ -35,9 +35,9 @@ Generated: 2026-06-23T12:30:38.567Z
 | `.webp` | 150 | 79276868 | 75.6 MB |
 | `.mp4` | 2 | 7679952 | 7.32 MB |
 | `.jpg` | 12 | 3739432 | 3.57 MB |
-| `.js` | 1 | 938973 | 917.0 KB |
+| `.js` | 1 | 938994 | 917.0 KB |
 | `.md` | 90 | 469079 | 458.1 KB |
-| `.json` | 30 | 97625 | 95.3 KB |
+| `.json` | 30 | 97646 | 95.4 KB |
 | `.css` | 1 | 18783 | 18.3 KB |
 | `.txt` | 14 | 4298 | 4.20 KB |
 | `.html` | 1 | 3127 | 3.05 KB |
@@ -49,7 +49,7 @@ Generated: 2026-06-23T12:30:38.567Z
 | `assets/image-packs/images` | 153 | 256432760 | 244.6 MB |
 | `assets/pbr` | 4 | 181207544 | 172.8 MB |
 | `assets/backup` | 41 | 87924451 | 83.9 MB |
-| `dist/assets` | 95 | 82996802 | 79.2 MB |
+| `dist/assets` | 95 | 82996823 | 79.2 MB |
 | `assets/image` | 24 | 50681424 | 48.3 MB |
 | `assets/image-packs/images-webgl` | 75 | 39638434 | 37.8 MB |
 | `dist/pbr` | 8 | 13215303 | 12.6 MB |
@@ -61,7 +61,7 @@ Generated: 2026-06-23T12:30:38.567Z
 | `assets/reference` | 1 | 1517426 | 1.45 MB |
 | `assets/image-packs/prompts` | 75 | 402393 | 393.0 KB |
 | `assets/image-packs/source.md` | 15 | 66686 | 65.1 KB |
-| `assets/image-packs/commentary.json` | 15 | 56402 | 55.1 KB |
+| `assets/image-packs/commentary.json` | 15 | 56423 | 55.1 KB |
 | `assets/image-packs/manifest.json` | 15 | 41223 | 40.3 KB |
 | `assets/image-packs/reference-used.txt` | 14 | 4298 | 4.20 KB |
 | `dist/index.html` | 1 | 3127 | 3.05 KB |

@@ -285,14 +285,24 @@ defer（不阻塞 13b 合并）：
 
 目标：把“每张图有哪些时尚单品、对应解说、人物对话”做成可重复生产流程，而不是一次性手写。
 
-- [ ] 固化 `commentary.json` 生产流程：从 `source.md` / prompt 抽候选单品 → 看 `main-visual.png` 与
+- [x] 固化 `commentary.json` 生产流程：从 `source.md` / prompt 抽候选单品 → 看 `main-visual.png` 与
       `character-transparent.png` 人工确认 → 写入双语 commentary → 前端读取。
-- [ ] 每包保留 4-6 个 item，避免为填满热点而写弱单品；宁可少而准。
-- [ ] `part` 继续使用有限枚举：`jacket` / `top` / `bottom` / `dress` / `bag` / `shoes` / `accessory` /
+- [x] 每包保留 4-6 个 item，避免为填满热点而写弱单品；宁可少而准。
+- [x] `part` 继续使用有限枚举：`jacket` / `top` / `bottom` / `dress` / `bag` / `shoes` / `accessory` /
       `hair` / `makeup` / `other`。前端可按 part 给默认锚点，人工 anchor 只修偏差大处。
-- [ ] 增加 `voice`、`emotion`、`mouth`、`beat` 等可选字段时必须向后兼容；无语音时系统退化为字幕和吊牌。
-- [ ] 写一个轻量校验脚本：检查 JSON schema、voice 路径是否存在、item 数量、part 枚举、anchor 范围、locale 字段完整性。
-- [ ] 随机抽查 3 包：每包肉眼确认热点位置、日文语气、中文释义、表情联动是否合理。
+- [x] 增加 `voice`、`emotion`、`mouth`、`beat` 等可选字段时必须向后兼容；无语音时系统退化为字幕和吊牌。
+- [x] 写一个轻量校验脚本：检查 JSON schema、voice 路径是否存在、item 数量、part 枚举、anchor 范围、locale 字段完整性。
+- [x] 随机抽查 3 包：每包肉眼确认热点位置、日文语气、中文释义、表情联动是否合理。
+
+结果（Sprint 16）：
+
+- `docs/commentary-pipeline.md` 固化 schema、authoring workflow、4-6 个强单品策略、normalized `anchor`
+  放置规则，以及 `voice` 缺失时的字幕/吊牌降级。
+- `npm run commentary:validate` 覆盖 15 包 `commentary.json`：schemaVersion、双语 locale、item 数量、唯一 ID、
+  part enum、anchor 范围、expression hint、可选 `beat`/`focus` event type、可选 `voice` 路径存在性。
+- `docs/commentary-audit.md` 由 validator 刷新，记录 15 包 / 75 items、part distribution、expression usage、
+  optional field usage、voice 空缺状态和 3 包 spot checks。
+- 已做语义不变的 enum 归一化：`coat` / `outer` -> `jacket`，`prop` / `umbrella` -> `other`；未改文案、锚点或 item 顺序。
 
 验收：
 

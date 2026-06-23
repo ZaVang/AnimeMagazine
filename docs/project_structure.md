@@ -9,12 +9,14 @@
 |------|------|
 | `index.html` | 入口 HTML，标题 `ATELIER アトリヱ MAY 2026`，挂 Google Fonts（Italiana / Shippori Mincho），`#root` + `/src/main.jsx`。**H1：`<head>` 含静态 OG/Twitter card meta（og:title/description/image=`/og-cover.png`/type、twitter:card=summary——OG-FIX 后由 summary_large_image 降级，因封面 og-cover.png 是 941×1672 竖图，large 卡会黑边，summary 用方形缩略更稳，且无横图素材故不硬产）+ description。硬约束（注释已写明）：SPA 静态站，meta 无法按 spread 动态化——所有深链分享的预览卡相同，per-spread 需 SSR，超本项目形态** |
 | `vite.config.js` | Vite 配置：React 插件、`assetsInclude **/*.exr`、**端口固定 5178** |
-| `package.json` | 依赖：three 0.184、page-flip 2.0.7、react 19、vite 8。脚本 dev/build/asset:audit/visual:smoke/narrative:smoke/preview |
+| `package.json` | 依赖：three 0.184、page-flip 2.0.7、react 19、vite 8。脚本 dev/build/asset:audit/commentary:validate/visual:smoke/narrative:smoke/preview |
 | `README.md` | 仅标题（信息少，背景看 docs/） |
 | `docs/FUTURE.md` | Roadmap + 12 个已结案 sprint 的完整记录（审计修复史 + 未实施功能规划） |
 | `docs/messenger-visual-reference.md` | Messenger / Three.js 视觉叙事参考笔记：shader-first、资源压缩、可选后处理、叙事节奏；明确先沉淀项目 docs，暂不提升为全局 skill |
 | `docs/resource-pipeline.md` | Sprint 13a/13b 资源职责边界：DOM `鑑賞` real `<img>` 红线、WebGL-only texture 候选格式、PBR 下采样记录、KTX2/Basis tooling 缺口 |
 | `docs/asset-audit.md` | `npm run asset:audit` 生成的资源体积 baseline（source assets / public / dist，按 scope/extension/category + largest files 汇总） |
+| `docs/commentary-pipeline.md` | Sprint 16 commentary 数据生产流程与 schema 合同：从 `source.md` / prompts / `main-visual.png` / `character-transparent.png` 到双语 commentary、normalized `anchor`、有限 `part` enum、可选 `voice`/`emotion`/`mouth`/`beat`/`focus` 兼容规则 |
+| `docs/commentary-audit.md` | `npm run commentary:validate` 刷新的 commentary 审计：15 包文件数、item 数、part distribution、expression usage、optional field usage、voice 空缺状态、3 包 spot checks 与本轮 enum 归一化记录 |
 | `dist/` | 构建产物（`npm run build` 输出） |
 
 ## src/（应用代码）
@@ -91,16 +93,17 @@
 | 路径 | 内容 |
 |------|------|
 | `assets/image/` | 封面/封底/内页 1-20 png + 角色 transparent/chromakey/background-only 分层 |
-| `assets/image-packs/N/`（1–15） | 每包：`commentary.json`、`images/`、`images-webgl/`、`manifest.json`、`prompts/`、`source.md`（**15 包全有 commentary.json**，schema `commentary-bilingual-v1`；`images-webgl/*.webp` 是 Sprint 13b 生成的 WebGL-only display copies，鑑賞阅读层仍走 `images/main-visual.png`） |
+| `assets/image-packs/N/`（1–15） | 每包：`commentary.json`、`images/`、`images-webgl/`、`manifest.json`、`prompts/`、`source.md`（**15 包全有 commentary.json**，schema `commentary-bilingual-v1`；Sprint 16 后 `part` 归一到有限 enum，`npm run commentary:validate` 可本地校验；`images-webgl/*.webp` 是 Sprint 13b 生成的 WebGL-only display copies，鑑賞阅读层仍走 `images/main-visual.png`） |
 | `assets/image-packs/overview-*.png` | 总览/动作/表情/透明 sheet |
 | `assets/pbr/`、`public/pbr/` | 纸张 paper_0026 / 木桌 wood_0066 的 color/normal/roughness/ao；`assets/pbr/` 保留原始素材包，`public/pbr/` 里两张 normal map 是 1024px runtime 版本但为兼容现有 URL 仍沿用 `_2k` 文件名 |
 | `assets/backup/` | 备份素材（如 cover-extra-2026.png） |
 | `public/audio/`（规划） | 音效：page-turn-01~03、cover-open/close、room-tone、runway —— **多数仍空缺** |
-| `scripts/` | 素材/审计/视觉验证脚本：`asset-audit.mjs`（无依赖 Node 资源体积审计 + WebGL WebP drift check）、`visual-smoke.mjs`（无新增依赖；启动 Vite + 系统 Chrome/Edge headless，经 CDP 覆盖 1280x800 与 375x812、截图到 `tmp/visual-smoke/` 并断言 WebGL 非空/Bokeh off/toneMapping config/reduced-motion grain off）、`narrative-smoke.mjs`（Sprint 15；纯 resolver + CDP 覆盖 deep link、gallery landing、look-card、tour/runway、reduced-motion）、`generate-webgl-variants.mjs`（用 ffmpeg/libwebp 生成 WebGL-only WebP display copies）、`create_live2d_draft_psd.py`、`create_popup_psd.py` |
+| `scripts/` | 素材/审计/视觉验证脚本：`asset-audit.mjs`（无依赖 Node 资源体积审计 + WebGL WebP drift check）、`commentary-validate.mjs`（Sprint 16；无依赖 Node commentary schema validator + `docs/commentary-audit.md` 刷新，校验 schemaVersion/locale/item count/part enum/anchor/expression/beat-focus/voice path）、`visual-smoke.mjs`（无新增依赖；启动 Vite + 系统 Chrome/Edge headless，经 CDP 覆盖 1280x800 与 375x812、截图到 `tmp/visual-smoke/` 并断言 WebGL 非空/Bokeh off/toneMapping config/reduced-motion grain off）、`narrative-smoke.mjs`（Sprint 15；纯 resolver + CDP 覆盖 deep link、gallery landing、look-card、tour/runway、reduced-motion）、`generate-webgl-variants.mjs`（用 ffmpeg/libwebp 生成 WebGL-only WebP display copies）、`create_live2d_draft_psd.py`、`create_popup_psd.py` |
 | `prompts/` | 各包生成 prompt（1.md~18.md） |
 
 ## docs/（product-loop 通信，见 SPRINT.md 表）
 
-`docs/plans/SPRINT.md` / `docs/plans/SPRINT13.md` / `docs/plans/SPRINT14.md` / `docs/plans/SPRINT15.md`（合同）、`docs/plans/pitfalls.md`（坑）、`docs/project_structure.md`（本文件）、`docs/state-matrix.md`（Sprint 15 七状态 guard 矩阵）、
+`docs/plans/SPRINT.md` / `docs/plans/SPRINT13.md` / `docs/plans/SPRINT14.md` / `docs/plans/SPRINT15.md` / `docs/plans/SPRINT16.md`（合同）、`docs/plans/pitfalls.md`（坑）、`docs/project_structure.md`（本文件）、`docs/state-matrix.md`（Sprint 15 七状态 guard 矩阵）、
 `docs/messenger-visual-reference.md`（外部 Three.js 视觉叙事借鉴）、`docs/resource-pipeline.md`（资源职责图）、`docs/asset-audit.md`（资源 baseline）、
+`docs/commentary-pipeline.md`（Sprint 16 commentary authoring/schema 合同）、`docs/commentary-audit.md`（Sprint 16 validator 生成审计）、
 `docs/orch/*`（reviewer 报告 / scout / plan / negotiation / gen_status / eval）。

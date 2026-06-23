@@ -20,7 +20,7 @@
   "items": [
     {
       "id": "cropped-structured-jacket",
-      "part": "outer",
+      "part": "jacket",
       "anchor": [0.52, 0.38],
       "expression": "neutral",
       "name": { "zh": "短款结构外套", "ja": "クロップド構築ジャケット" },
@@ -56,7 +56,7 @@
     },
     {
       "id": "exhibition-booklet",
-      "part": "prop",
+      "part": "other",
       "anchor": [0.60, 0.55],
       "expression": "thinking",
       "name": { "zh": "无文字展览册", "ja": "文字のない展覧会冊子" },

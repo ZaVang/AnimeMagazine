@@ -1,144 +1,192 @@
-# Evaluator Report — Iteration 1
+# Evaluator Report — Sprint 16 Iteration 1
 
-## Checkbox 状态
+## Scope Read
 
-| Task | Status | Notes |
-|---|---|---|
-| S15-BEAT-1: Primary-event data layer | [x] | `src/narrativeBeats.js` is present and pure; existing commentary metadata remains optional. |
-| S15-HUD-1: Primary-event HUD emphasis and noise reduction | [x] | `.hud-beat` and primary/secondary control states are present; mobile visual smoke was inspected. |
-| S15-DISCOVERY-1: First-time discovery cues | [x] | `tryDiscoveryCue()` is per-session and skips active gallery/lookCard/show/tour states. |
-| S15-STATE-1: Seven-state matrix and guards | [x] | `docs/state-matrix.md` documents `state`, `turn`, `show`, `tour`, `gallery`, `lookCard`, and `peel`. |
-| S15-VERIFY-1: Verification and roadmap closeout | [x] | All verification commands were rerun by Evaluator and passed. |
+I independently read the Sprint 16 contract and required review surface:
 
-## 验收命令重跑结果
+- `docs/plans/SPRINT16.md`
+- `docs/FUTURE.md` Sprint 16 section
+- `docs/commentary-pipeline.md`
+- `docs/commentary-audit.md`
+- `scripts/commentary-validate.mjs`
+- `package.json`
+- `docs/orch/gen_status.md`
+- current `assets/image-packs/*/commentary.json` diff
+
+The working tree is on `main...origin/main` with Sprint 16 commentary/schema
+docs, validator, audit output, roadmap/project docs, and enum-only commentary
+JSON changes. I did not commit.
+
+## Contract Findings
+
+### 1. Validator coverage
+
+PASS. `scripts/commentary-validate.mjs` validates:
+
+- `schemaVersion === commentary-bilingual-v1`
+- `defaultLocale` in `ja` / `zh`
+- bilingual `title`, `character.name`, `character.intro`, `intro`,
+  `runwayIntro`, item `name`, item `tags`, and item `text`
+- item count in the required 4-6 range
+- unique kebab-case item IDs
+- finite `part` enum:
+  `jacket`, `top`, `bottom`, `dress`, `bag`, `shoes`, `accessory`, `hair`,
+  `makeup`, `other`
+- normalized `anchor` as two finite numbers in `[0, 1]`
+- expression hints limited to `neutral`, `smile`, `thinking`
+- optional `voice` path as a non-empty pack-relative path that stays inside the
+  pack and exists when present
+- optional `emotion`, `mouth`, root/item `beat`, and root/item `focus`
+- optional `beat` / `focus` event strings and typed metadata against
+  `NARRATIVE_EVENT_TYPES` from `src/narrativeBeats.js`
+
+Errors are readable and include pack plus field path, for example
+`[pack 7] items[1].part: expected one of ...`. The command exits non-zero on
+validation errors by setting `process.exitCode = 1`.
+
+### 2. Commentary JSON diff
+
+PASS. The commentary diffs are semantic enum normalization only:
+
+- `coat` / `outer` -> `jacket`
+- `prop` / `umbrella` -> `other`
+
+The diff does not change item IDs, anchors, expressions, names, tags, text, or
+item order.
+
+### 3. Production workflow docs
+
+PASS. `docs/commentary-pipeline.md` documents the path from `source.md` and
+prompts to candidate item extraction, then visual confirmation against
+`images/main-visual.png` and `images/character-transparent.png`, then bilingual
+commentary writing and `npm run commentary:validate`.
+
+It also documents the 4-6 strong-item rule, normalized `anchor` placement,
+finite `part` enum, expression hints, optional future fields, and missing voice
+fallback behavior.
+
+### 4. No-voice compatibility
+
+PASS. Current data has zero `voice` fields and no voice directories. This is
+valid under the docs and validator. `npm run narrative:smoke` passed with
+subtitles/tags/look-card/tour/runway still functioning, and
+`docs/commentary-audit.md` explicitly records the no-voice fallback as valid.
+
+### 5. Sprint 13/14/15 regression checks
+
+PASS.
+
+- No diff in `src/magazineScene.js`, `src/render-config.js`, or
+  `src/narrativeBeats.js`.
+- DOM `鑑賞` remains real image pages per `npm run narrative:smoke`:
+  `realImgPages=18`, `hasCanvasFallback=false`.
+- Bokeh remains disabled by default:
+  `src\magazineScene.js:577:    this.bokehPass.enabled = false;`
+- Tone mapping remains Neutral:
+  `src\render-config.js:46:    toneMapping: THREE.NeutralToneMapping,`
+- Narrative smoke passed, including deep link, gallery landing, look-card,
+  tour, runway, and reduced-motion checks.
+
+### 6. Repeatability
+
+PASS. The package script is present:
+
+- `commentary:validate`: `node scripts/commentary-validate.mjs`
+
+Build, asset audit, narrative smoke, documentation grep checks, and
+`git diff --check` all ran successfully in this evaluator pass.
+
+## Commands Rerun
+
+### `npm run commentary:validate`
+
+Exit 0.
+
+Key output:
+
+- `Commentary validation passed.`
+- `Packs: 15/15`
+- `Items: 75`
+- `Part distribution: top=16, jacket=14, bottom=11, accessory=10, other=10, shoes=8, bag=6`
+- `Expression usage: neutral=37, smile=29, thinking=9`
+- `Voice fields: 0`
+- `Audit: docs/commentary-audit.md`
 
 ### `npm run build`
 
 Exit 0.
 
-Summary:
+Key output:
+
 - Vite v8.0.16 production build completed.
-- `142 modules transformed`.
-- Built in `503ms`.
-- Existing warning remains: one JS chunk is larger than 500 kB after minification.
+- `142 modules transformed.`
+- Existing large chunk warning remains for `dist/assets/index-*.js`; no build
+  error.
 
 ### `npm run asset:audit`
 
 Exit 0.
 
-Summary:
-- Generated: `2026-06-23T12:30:38.567Z`.
-- Files audited: `558`.
-- Built `dist/`: `93.7 MB`.
-- `dist/assets`: `79.2 MB`.
-- WebGL variant drift check: `None. Every canonical WebGL-only PNG has a matching, up-to-date images-webgl/*.webp display copy.`
+Key output:
 
-### `npm run visual:smoke`
-
-Exit 0.
-
-Summary:
-- Desktop `1280x800`: `standeeCount=15`, target standee `risen`, `materialHasShader=true`, `bokehEnabled=false`, `toneMappingMatchesConfig=true`, `nonBlankFraction=1`, `avgLum=101.18`, `pass=true`.
-- Mobile `375x812`: `standeeCount=15`, target standee `risen`, `materialHasShader=true`, `bokehEnabled=false`, `toneMappingMatchesConfig=true`, `reducedMotion=true`, `grainEnabled=false`, `nonBlankFraction=1`, `avgLum=101.34`, `pass=true`.
-- Screenshot inspected manually: `tmp/visual-smoke/mobile-375x812.png` shows the primary-event UI, bottom status, standee, and core controls without obvious overlap.
+- Files audited: `558`
+- Total size: `708.5 MB`
+- Built `dist`: `93.7 MB`
+- `assets/image-packs/commentary.json`: 15 files / `55.1 KB`
+- WebGL variant drift check: `None. Every canonical WebGL-only PNG has a
+  matching, up-to-date images-webgl/*.webp display copy.`
 
 ### `npm run narrative:smoke`
 
 Exit 0.
 
-Summary:
-- Pure resolver resolved mock spreads as `lookCard`, `runway`, and `read`.
-- Interactive app: `exactlyOneBeatPerSpread=true`, `beatCount=8`, beat types were `runway` plus seven `commentary` events.
-- Deep link landed `state=open`, `spreadIndex=3`, `locale=zh`, `lookCard=true`, `activeItem=0`.
-- Gallery opened as DOM `鑑賞`: `realImgPages=18`, `hasCanvasFallback=false`; closing landed cleanly to `state=open`, `spreadIndex=3`.
-- Look-card opened item `0` and did not persist temporary card state.
-- Guided tour and runway show both opened on representative risen standees.
-- Reduced-motion path: `reducedMotion=true`, `grainEnabled=false`, `discoveryClassCount=0`, primary beat visible.
-- Summary written to `tmp/narrative-smoke/summary.json`.
+Key output:
 
-### `Select-String -Path 'src/magazineScene.js' -Pattern 'this.bokehPass.enabled = false'`
+- `exactlyOneBeatPerSpread=true`
+- `beatCount=8`
+- Deep link: `state=open`, `spreadIndex=3`, `locale=zh`, `lookCard=true`,
+  `activeItem=0`
+- Gallery: `realImgPages=18`, `hasCanvasFallback=false`
+- Tour and runway open successfully.
+- Reduced motion: `grainEnabled=false`, `discoveryClassCount=0`
+- Summary: `D:\work\AnimeMagazine\tmp\narrative-smoke\summary.json`
 
-Exit 0.
+### Required `Select-String` checks
 
-Result:
+All exit 0.
 
-```text
-src\magazineScene.js:577:    this.bokehPass.enabled = false;
-```
-
-### `Select-String -Path 'src/render-config.js' -Pattern 'NeutralToneMapping'`
-
-Exit 0.
-
-Result:
-
-```text
-src\render-config.js:46:    toneMapping: THREE.NeutralToneMapping,
-src\render-config.js:127:  // Sprint 14 keeps renderer.toneMapping on THREE.NeutralToneMapping. This is a
-```
-
-### `Select-String -Path 'docs/FUTURE.md' -Pattern 'Sprint 15'`
-
-Exit 0.
-
-Result:
-
-```text
-docs\FUTURE.md:260:## Sprint 15 — 叙事节奏与跨页主事件（P1）
-```
-
-### `Select-String -Path 'docs/state-matrix.md' -Pattern 'state','turn','show','tour','gallery','lookCard','peel'`
-
-Exit 0.
-
-Summary:
-- All seven terms appear in the state vocabulary and entry-policy table.
-- The matrix states policies for page turn, gallery, look-card, tour, show, discovery cue, and gallery landing.
-- It explicitly documents that `syncNarrativeBeat()` is display-only and does not queue transitions or write preferences.
+- `docs/commentary-pipeline.md` matched `source.md`, `main-visual.png`,
+  `character-transparent.png`, `anchor`, and `voice`.
+- `docs/commentary-audit.md` matched `part distribution`, `Spot checks`, and
+  `Corrections`.
+- `docs/FUTURE.md` matched Sprint 16 heading and result section.
+- `src/magazineScene.js` matched `this.bokehPass.enabled = false`.
+- `src/render-config.js` matched `NeutralToneMapping`.
 
 ### `git diff --check`
 
 Exit 0.
 
-Summary:
-- No whitespace errors.
-- Only LF-to-CRLF working-copy warnings for modified files.
+No whitespace errors. PowerShell/Git printed LF-to-CRLF working-copy warnings for
+touched files only.
 
-## Generator 报告 vs 实际对比
+## Remaining Gaps
 
-Generator reported `PASSED`. Evaluator reran every contract command independently and got matching pass results.
+These are documentation/process-layer gaps, not blockers for Sprint 16:
 
-Observed differences:
-- Build timing differed (`906ms` reported vs `503ms` observed), not material.
-- Asset audit timestamp differed because Evaluator reran the audit.
-- Visual smoke luminance matched within rounding (`avgLum` around `101.18` / `101.34`).
-- Narrative smoke results matched the reported state coverage.
+- The audit spot checks are prose records, not machine-verifiable visual tests.
+- The validator has no committed negative fixture suite proving each readable
+  error path, although the implementation is direct and the happy path passes.
+- `voice` is only schema/documentation-compatible in this sprint; actual voice
+  file production and playback are intentionally deferred to later sprints.
+- The validator allows unknown future optional metadata fields by design, so
+  author discipline still depends on `docs/commentary-pipeline.md` for fields
+  beyond the current UI contract.
 
-No acceptance gap found.
+## Decision
 
-## pitfalls 合规检查
-
-- DOM `鑑賞` remains real DOM images: `toggleGallery()` creates `document.createElement("img")` pages and calls `pageFlip.loadFromHTML(...)`; narrative smoke confirmed `hasCanvasFallback=false`.
-- BokehPass remains disabled by default at `src/magazineScene.js:577`.
-- Tone mapping remains `THREE.NeutralToneMapping` in `src/render-config.js`.
-- `src/narrativeBeats.js` is a pure resolver module: no DOM access, no WebGL access, no runtime `this.standees` dependency.
-- `syncNarrativeBeat()` updates HUD text, dataset, and CSS classes only. It does not call `savePreferences`, does not enqueue turns, and does not open gallery/show/card/tour.
-- `tryDiscoveryCue()` is per-session (`discoverySeen`) and returns while gallery/lookCard/show/tour is active; reduced-motion does not receive `.is-discovery` animated emphasis.
-- State guards match the Sprint 15 matrix in the touched entry points: `openLookCard`, `startTour`, `startShow`, `toggleGallery`, and discovery cues use return/close/clear-peel policies instead of queuing hidden work.
-- Port cleanup check after smoke: port `5178` only had `TIME_WAIT` entries with `OwningProcess 0`; no live Vite/Chrome smoke process was left occupying the port.
-
-No known pitfall violation found.
-
-## 失败原因分析（如有）
-
-None. All checkboxes are complete, all verification commands pass, and extra high-risk checks pass.
-
-## 新陷阱待追加（如有）
-
-- [状态 / narrative] Primary-event HUD and discovery cues must stay display-only: do not write preferences, and do not queue turn/show/gallery/card transitions. While another owner state is active, close or return according to `docs/state-matrix.md`.
-
-## 决策
-
-COMPLETE
+Sprint 16 satisfies `docs/plans/SPRINT16.md` and the Sprint 16 goals in
+`docs/FUTURE.md`. No minimum corrective patch is required before closing this
+sprint.
 
 DECISION: COMPLETE

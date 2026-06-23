@@ -20,7 +20,7 @@
   "items": [
     {
       "id": "silver-cropped-jacket",
-      "part": "outer",
+      "part": "jacket",
       "anchor": [0.52, 0.39],
       "expression": "neutral",
       "name": { "zh": "银灰短外套", "ja": "シルバーグレーのショートジャケット" },

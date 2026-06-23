@@ -20,7 +20,7 @@
   "items": [
     {
       "id": "black-wool-long-coat",
-      "part": "coat",
+      "part": "jacket",
       "anchor": [0.52, 0.42],
       "expression": "neutral",
       "name": { "zh": "黑色长款羊毛大衣", "ja": "ブラックウールロングコート" },

@@ -20,7 +20,7 @@
   "items": [
     {
       "id": "cropped-windbreaker",
-      "part": "outer",
+      "part": "jacket",
       "anchor": [0.52, 0.40],
       "expression": "neutral",
       "name": { "zh": "短款防风夹克", "ja": "ショートウィンドブレーカー" },
@@ -56,7 +56,7 @@
     },
     {
       "id": "plain-water-bottle",
-      "part": "prop",
+      "part": "other",
       "anchor": [0.62, 0.53],
       "expression": "smile",
       "name": { "zh": "无标水瓶", "ja": "無地のウォーターボトル" },

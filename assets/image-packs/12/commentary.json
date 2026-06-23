@@ -20,7 +20,7 @@
   "items": [
     {
       "id": "ivory-knit-cardigan",
-      "part": "outer",
+      "part": "jacket",
       "anchor": [0.50, 0.40],
       "expression": "smile",
       "name": { "zh": "米白针织开衫", "ja": "アイボリーのニットカーディガン" },
@@ -47,7 +47,7 @@
     },
     {
       "id": "white-porcelain-cup",
-      "part": "prop",
+      "part": "other",
       "anchor": [0.58, 0.53],
       "expression": "smile",
       "name": { "zh": "白瓷杯", "ja": "白磁のカップ" },

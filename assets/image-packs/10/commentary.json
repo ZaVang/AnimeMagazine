@@ -20,7 +20,7 @@
   "items": [
     {
       "id": "collarless-long-coat",
-      "part": "coat",
+      "part": "jacket",
       "anchor": [0.52, 0.42],
       "expression": "neutral",
       "name": { "zh": "长款无领大衣", "ja": "ロングノーカラーコート" },
@@ -47,7 +47,7 @@
     },
     {
       "id": "blank-folder-clutch",
-      "part": "prop",
+      "part": "other",
       "anchor": [0.58, 0.47],
       "expression": "thinking",
       "name": { "zh": "无文字文件夹手拿包", "ja": "文字のないフォルダークラッチ" },

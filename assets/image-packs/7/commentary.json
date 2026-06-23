@@ -20,7 +20,7 @@
   "items": [
     {
       "id": "waterproof-trench",
-      "part": "coat",
+      "part": "jacket",
       "anchor": [0.52, 0.42],
       "expression": "neutral",
       "name": { "zh": "防水质感长风衣", "ja": "撥水ロングトレンチ" },
@@ -38,7 +38,7 @@
     },
     {
       "id": "transparent-umbrella",
-      "part": "umbrella",
+      "part": "other",
       "anchor": [0.56, 0.18],
       "expression": "neutral",
       "name": { "zh": "透明雨伞", "ja": "透明アンブレラ" },

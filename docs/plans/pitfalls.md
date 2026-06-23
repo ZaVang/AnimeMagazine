@@ -152,3 +152,7 @@
 ## 状态 / Narrative beats（Sprint 15 新增）
 
 - **primary-event HUD 与 discovery cue 必须保持 display-only，不写 preferences、不排队状态**（S15-STATE-1）：`syncNarrativeBeat()` / discovery cue 只能更新 HUD 文案、dataset、CSS class 或一次性 session set；不得调用 `savePreferences`，不得暗中 queue turn/show/gallery/card/tour，也不得在 overlay/show/tour/card 活跃时延迟执行隐藏动作。遇到已有 owner state 时按 `docs/state-matrix.md` 明确 close 或 return。这个规则保护 deep link、gallery landing、look-card、runway/tour 与 reduced-motion 路径不被“温柔提示”反向打断。
+
+## Commentary 数据生产（Sprint 16 新增）
+
+- **`part` enum 要收窄而不是越写越细**（S16-SCHEMA-1）：历史数据里出现过 `coat` / `outer` / `prop` / `umbrella`，但前端与 validator 的稳定枚举只有 `jacket` / `top` / `bottom` / `dress` / `bag` / `shoes` / `accessory` / `hair` / `makeup` / `other`。外套、开衫、风衣、防风夹克等都归 `jacket`；书、伞、杯子、水瓶等叙事道具归 `other`。不要为了一个新物件扩 enum，除非同时有前端默认锚点、统计和文档的真实需求。
