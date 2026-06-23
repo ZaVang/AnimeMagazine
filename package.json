@@ -8,6 +8,7 @@
     "asset:webgl-variants": "node scripts/generate-webgl-variants.mjs",
     "asset:audit": "node scripts/asset-audit.mjs",
     "visual:smoke": "node scripts/visual-smoke.mjs",
+    "narrative:smoke": "node scripts/narrative-smoke.mjs",
     "preview": "vite preview"
   },
   "dependencies": {

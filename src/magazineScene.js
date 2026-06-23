@@ -14,6 +14,10 @@ import {
   buildCardViewModel,
   isItemInRange,
 } from "./lookCard.js";
+import {
+  buildNarrativeBeatIndex,
+  narrativeEventText,
+} from "./narrativeBeats.js";
 import { RENDER } from "./render-config.js";
 
 const coverFrontUrl = new URL("../assets/image/cover.png", import.meta.url).href;
@@ -338,6 +342,11 @@ export class MagazineScene {
     this.gallery = null;
     this.lookCard = null; // CARD-1: the open look card, or null. Never persisted.
     this._spreadCommentaryIndex = null; // CARD-1: memoized spread→commentary index
+    this._narrativeBeatIndex = null; // S15: memoized spread→primary narrative event
+    this.primaryEventKey = null;
+    this.discoverySeen = new Set();
+    this.discoveryTimers = new Map();
+    this.lastDiscoveryAt = 0;
     this.disposables = [];
     this.reducedMotion =
       typeof window.matchMedia === "function" &&
@@ -1423,6 +1432,25 @@ uniform float uStandeeAlphaHigh;
     return this._spreadCommentaryIndex;
   }
 
+  // S15-BEAT: spread → primary narrative event. Like the look-card index, this
+  // reads module-level STANDEE_SOURCES/commentary rather than this.standees, so
+  // deep links and cold starts resolve a beat before runtime standees finish.
+  narrativeBeatIndex() {
+    if (!this._narrativeBeatIndex) {
+      this._narrativeBeatIndex = buildNarrativeBeatIndex({
+        spreadCount: this.leafCount() + 1,
+        sources: STANDEE_SOURCES,
+        pageToSpread: (pageIndex) => this.pageToSpread(pageIndex),
+      });
+    }
+    return this._narrativeBeatIndex;
+  }
+
+  resolvedPrimaryEvent(spread = this.spreadIndex) {
+    const clamped = Math.min(Math.max(0, Math.trunc(spread) || 0), this.leafCount());
+    return this.narrativeBeatIndex().get(clamped);
+  }
+
   materialForPage(pageIndex) {
     if (pageIndex === null) {
       return this.colophonMaterial ?? this.blankPageMaterial;
@@ -2310,6 +2338,7 @@ uniform float uStandeeAlphaHigh;
 
   startTour(standee) {
     if (this.tour || !standee.commentary || standee.state !== "risen") return;
+    if (this.gallery || this.lookCard || this.show || this.turn) return;
     this.cancelStandeeAction(standee);
     // the tour now drives the bottom-center caption; retire the discovery hint
     // so the two no longer overlap (it re-shows on the next rise / runway nudge).
@@ -2324,6 +2353,7 @@ uniform float uStandeeAlphaHigh;
     const intro = standee.commentary.intro;
     this.setExpressionHint(standee, intro?.expression);
     this.setCaption(intro);
+    this.syncNarrativeBeat(true);
     this.playSound("pageTurn", { gain: 0.2, rate: 1.4 });
   }
 
@@ -2334,6 +2364,7 @@ uniform float uStandeeAlphaHigh;
     this.hideCommentary(tour.standee);
     this.hideCaption();
     tour.standee.idleAt = performance.now() + 4500 + Math.random() * 2500;
+    this.syncNarrativeBeat(true);
   }
 
   // The first risen, commentary-bearing standee on the open spread, or null.
@@ -2697,9 +2728,9 @@ uniform float uStandeeAlphaHigh;
       }
     }
     if (!hasStandee) return;
-    this.standeeHintShown = true;
-    this.hudHint.textContent = "彼女にふれると立ち上がる";
-    this.hudHint.classList.remove("is-faded");
+    if (this.tryDiscoveryCue("standee", { text: "人物にふれると立ち上がる" })) {
+      this.standeeHintShown = true;
+    }
   }
 
   // Once a commentary figure first finishes rising, surface the (otherwise
@@ -2714,22 +2745,22 @@ uniform float uStandeeAlphaHigh;
     this.standeeGuideShown = true;
     this.guideStandee = standee;
     if (!this.reducedMotion) standee.cui.bloomUntil = performance.now() + 3600;
-    if (this.hudHint) {
-      this.hudHint.textContent = "服にふれると、コーデ解説";
-      this.hudHint.classList.remove("is-faded");
-    }
+    this.tryDiscoveryCue("commentary", {
+      text: "服にふれると、コーデ解説",
+      control: this.hudTour,
+      replace: true,
+    });
   }
 
   showRunwayHint() {
-    if (!this.hudHint) return;
-    this.hudHint.textContent = "彼女にふれるとランウェイ";
-    this.hudHint.classList.remove("is-faded");
+    this.tryDiscoveryCue("runway", { text: "人物にふれるとランウェイ", replace: true });
   }
 
   // --- Runway show (the lights drop, the video performs) -----------------------
 
   startShow(standee) {
     if (this.show || !standee.videoUrl || standee.state !== "risen") return;
+    if (this.gallery || this.lookCard || this.turn) return;
     if (this.tour) this.endTour();
     this.clearPeel();
     this.cancelStandeeAction(standee);
@@ -2755,6 +2786,7 @@ uniform float uStandeeAlphaHigh;
     };
     this.show = { standee, phase: "dimming", dim: 0, fade: 0 };
     this.container.classList.add("in-show");
+    this.syncNarrativeBeat(true);
     if (standee.card) standee.card.group.visible = false;
     void this.prepareShowStage(standee);
     this.playSound("coverOpen", { gain: 0.3, rate: 0.7 });
@@ -2834,6 +2866,7 @@ uniform float uStandeeAlphaHigh;
     standee.mesh.castShadow = true;
     this.applyShowDim(0);
     this.container.classList.remove("in-show");
+    this.syncNarrativeBeat(true);
   }
 
   applyShowDim(dim) {
@@ -3486,6 +3519,10 @@ uniform float uStandeeAlphaHigh;
           <button class="hud-card" type="button" aria-label="このコーデの解説カードをひらく" hidden>コーデを読む</button>
           <button class="hud-share" type="button" aria-label="このページのリンクをコピー">リンクを共有</button>
         </div>
+        <div class="hud-beat" hidden>
+          <span class="hud-beat-kind"></span>
+          <span class="hud-beat-prompt"></span>
+        </div>
       </div>
       <div class="hud-feature hud-item">特集・白と海軍紺の構造美</div>
       <div class="hud-status hud-item">
@@ -3511,6 +3548,9 @@ uniform float uStandeeAlphaHigh;
     this.hudCharacter = this.hud.querySelector(".hud-character");
     this.hudCharacterName = this.hud.querySelector(".hud-character-name");
     this.hudCharacterIntro = this.hud.querySelector(".hud-character-intro");
+    this.hudBeat = this.hud.querySelector(".hud-beat");
+    this.hudBeatKind = this.hud.querySelector(".hud-beat-kind");
+    this.hudBeatPrompt = this.hud.querySelector(".hud-beat-prompt");
     this.mastheadCharacterKey = null; // diff guard: "spread:locale" of last render
 
     // Tappable entry into the reading (鑑賞) overlay so touch devices, which
@@ -3629,6 +3669,7 @@ uniform float uStandeeAlphaHigh;
           : "ページの端をドラッグしてめくる";
       if (this.hudHint.textContent !== hint) this.hudHint.textContent = hint;
     }
+    this.syncNarrativeBeat(true);
   }
 
   // HUD has no reactive framework, so the tour pill is shown/hidden by hand each
@@ -3639,6 +3680,7 @@ uniform float uStandeeAlphaHigh;
     const available = !this.tour && !this.gallery && !!this.currentSpreadTourStandee();
     if (this.hudTour.hidden === !available) return;
     this.hudTour.hidden = !available;
+    this.syncNarrativeBeat(true);
   }
 
   // Mark which language the locale toggle currently shows (used for styling the
@@ -3708,6 +3750,112 @@ uniform float uStandeeAlphaHigh;
       spreadHasCommentary(this.spreadCommentaryIndex(), this.spreadIndex);
     if (this.hudCard.hidden === !onSpread) return;
     this.hudCard.hidden = !onSpread;
+    this.syncNarrativeBeat(true);
+  }
+
+  currentNarrativeEvent() {
+    if (this.state === "closed" || this.state === "closing") {
+      return {
+        id: "cover-closed",
+        type: "cover",
+        label: { ja: "表紙の儀式", zh: "封面仪式" },
+        prompt: { ja: "表紙をひらく", zh: "打开封面" },
+        emphasis: "cover",
+        availability: { reader: true, standee: false, commentary: false, lookCard: false, runway: false },
+      };
+    }
+    if (this.state === "closedBack") {
+      return {
+        id: "back-closed",
+        type: "back",
+        label: { ja: "裏表紙", zh: "封底" },
+        prompt: { ja: "最後の余韻", zh: "最后的余韵" },
+        emphasis: "closing",
+        availability: { reader: true, standee: false, commentary: false, lookCard: false, runway: false },
+      };
+    }
+    return this.resolvedPrimaryEvent();
+  }
+
+  primaryControlFor(type) {
+    if (type === "read" || type === "cover" || type === "back") return this.hudRead;
+    if (type === "lookCard") return this.hudCard;
+    if (type === "commentary") return this.hudTour;
+    return null;
+  }
+
+  setPrimaryControl(control, primaryControl) {
+    if (!control) return;
+    control.classList.toggle("is-primary", control === primaryControl);
+    control.classList.toggle("is-secondary", !!primaryControl && control !== primaryControl);
+  }
+
+  clearDiscoveryClass(control) {
+    if (!control) return;
+    control.classList.remove("is-discovery");
+    const timer = this.discoveryTimers.get(control);
+    if (timer) window.clearTimeout(timer);
+    this.discoveryTimers.delete(control);
+  }
+
+  markDiscoveryControl(control) {
+    if (!control || this.reducedMotion || control.hidden) return;
+    this.clearDiscoveryClass(control);
+    control.classList.add("is-discovery");
+    const timer = window.setTimeout(() => {
+      this.clearDiscoveryClass(control);
+    }, 3200);
+    this.discoveryTimers.set(control, timer);
+  }
+
+  tryDiscoveryCue(key, { text = "", control = null, replace = false } = {}) {
+    if (!key || this.discoverySeen.has(key)) return false;
+    if (this.gallery || this.lookCard || this.show || this.tour) return false;
+    const now = performance.now();
+    if (text && !replace && now - this.lastDiscoveryAt < 2400) return false;
+    this.discoverySeen.add(key);
+    if (text && this.hudHint) {
+      this.hudHint.textContent = text;
+      this.hudHint.classList.remove("is-faded");
+      this.lastDiscoveryAt = now;
+    }
+    this.markDiscoveryControl(control);
+    return true;
+  }
+
+  syncNarrativeBeat(force = false) {
+    if (!this.hudBeat) return;
+    const event = this.currentNarrativeEvent();
+    const hidden = this.gallery || this.lookCard || this.show || !event;
+    const key = hidden
+      ? "hidden"
+      : `${this.state}:${this.spreadIndex}:${this.locale}:${event.id}:${event.type}:${this.hudCard?.hidden}:${this.hudTour?.hidden}`;
+    if (!force && this.primaryEventKey === key) return;
+    this.primaryEventKey = key;
+
+    this.hudBeat.hidden = hidden;
+    const primaryControl = hidden ? null : this.primaryControlFor(event.type);
+    this.setPrimaryControl(this.hudRead, primaryControl);
+    this.setPrimaryControl(this.hudTour, primaryControl);
+    this.setPrimaryControl(this.hudCard, primaryControl);
+
+    if (hidden) {
+      this.container.dataset.primaryEvent = "";
+      return;
+    }
+
+    this.container.dataset.primaryEvent = event.type;
+    this.hudBeat.dataset.event = event.type;
+    if (this.hudBeatKind) this.hudBeatKind.textContent = narrativeEventText(event, this.locale, "label");
+    if (this.hudBeatPrompt) this.hudBeatPrompt.textContent = narrativeEventText(event, this.locale, "prompt");
+
+    if (this.state === "open") {
+      if (!this.firstTurnDone && this.tryDiscoveryCue("page-turn", { text: "ページ端をなぞると次の紙面へ" })) return;
+      this.tryDiscoveryCue("reader", { control: this.hudRead });
+      if ((event.type === "lookCard" || event.type === "commentary") && this.hudCard && !this.hudCard.hidden) {
+        this.tryDiscoveryCue("look-card", { control: this.hudCard });
+      }
+    }
   }
 
   // Show a bilingual {ja,zh} field as a single-locale caption (default ja).
@@ -3760,6 +3908,7 @@ uniform float uStandeeAlphaHigh;
 
     this.syncLocaleButton();
     this.syncMasthead(true); // force re-render the masthead in the new language
+    this.syncNarrativeBeat(true);
 
     // CARD-1 per-locale red line: a card open while the language flips must
     // re-render its fields immediately (title/intro/items/tags), so the card is
@@ -3828,6 +3977,7 @@ uniform float uStandeeAlphaHigh;
     this.firstTurnDone = this.spreadIndex > 0; // past the first turn already
     this.syncHud();
     this.syncMasthead(true);
+    this.syncNarrativeBeat(true);
     if (persist) this.recordSpread();
     return this.spreadIndex;
   }
@@ -3972,6 +4122,8 @@ uniform float uStandeeAlphaHigh;
     // user-visible regression (these windows are sub-second).
     if (this.show) return false;
     if (this.turn) return false;
+    if (this.tour) this.endTour();
+    this.clearPeel();
     // a card and the flipbook are mutually exclusive — never both on screen.
     if (this.gallery) this.closeGallery();
     // guard: no commentary on this spread → no card (defense in depth; the entry
@@ -4044,6 +4196,7 @@ uniform float uStandeeAlphaHigh;
 
     this.lookCard = { el, sheet, spread, item: activeItem };
     this.renderLookCard();
+    this.syncNarrativeBeat(true);
 
     // reduced-motion: appear at once (mirror the G1 / gallery guard); otherwise
     // the .is-on class drives the CSS fade. setTimeout (not rAF) so the fade-in
@@ -4134,6 +4287,7 @@ uniform float uStandeeAlphaHigh;
     const card = this.lookCard;
     if (!card) return;
     this.lookCard = null;
+    this.syncNarrativeBeat(true);
     card.el.classList.remove("is-on");
     if (this.reducedMotion) {
       card.el.remove();
@@ -4657,6 +4811,7 @@ uniform float uStandeeAlphaHigh;
       if (this.gallery === g) el.classList.add("is-on");
     }, 20);
     this.container.classList.add("in-gallery");
+    this.syncNarrativeBeat(true);
   }
 
   // Arrow keys / ‹ › buttons drive the book's own flip animation.
@@ -4694,6 +4849,7 @@ uniform float uStandeeAlphaHigh;
       /* already torn down */
     }
     this.container.classList.remove("in-gallery");
+    this.syncNarrativeBeat(true);
     window.setTimeout(() => g.el.remove(), 380);
 
     if (landingEntry) this.applyGalleryLanding(landingEntry);
@@ -4806,6 +4962,7 @@ uniform float uStandeeAlphaHigh;
     this.updateTour();
     this.syncTourButton();
     this.syncMasthead();
+    this.syncNarrativeBeat();
     this.updateShow(delta);
     this.updateCamera(delta, now);
     this.updateMicroMotion(elapsed);
@@ -4944,6 +5101,8 @@ uniform float uStandeeAlphaHigh;
     }
     this.textureWarmupQueue.length = 0;
     this.textureWarmupSet.clear();
+    for (const timer of this.discoveryTimers.values()) window.clearTimeout(timer);
+    this.discoveryTimers.clear();
     window.clearTimeout(this.cardShareFlashTimer);
     // BUG-DISPOSE-SHARE-TIMER (Sprint 6 / Iter 2): symmetric counterpart to the
     // line above — cardShareFlashTimer was cleared, shareFlashTimer was not.

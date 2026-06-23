@@ -1,83 +1,144 @@
-# Evaluator Report — Sprint 14 Iteration 1
+# Evaluator Report — Iteration 1
 
-DECISION: PASSED
+## Checkbox 状态
 
-> Note: the planned subagent evaluator could not run because the agent quota was exhausted. This report is a main-agent fallback evaluator pass. The verification commands below were run after the final CSS polish and before this report was written.
+| Task | Status | Notes |
+|---|---|---|
+| S15-BEAT-1: Primary-event data layer | [x] | `src/narrativeBeats.js` is present and pure; existing commentary metadata remains optional. |
+| S15-HUD-1: Primary-event HUD emphasis and noise reduction | [x] | `.hud-beat` and primary/secondary control states are present; mobile visual smoke was inspected. |
+| S15-DISCOVERY-1: First-time discovery cues | [x] | `tryDiscoveryCue()` is per-session and skips active gallery/lookCard/show/tour states. |
+| S15-STATE-1: Seven-state matrix and guards | [x] | `docs/state-matrix.md` documents `state`, `turn`, `show`, `tour`, `gallery`, `lookCard`, and `peel`. |
+| S15-VERIFY-1: Verification and roadmap closeout | [x] | All verification commands were rerun by Evaluator and passed. |
 
-## Task Verdicts
-
-- [x] S14-PAPER-1: Passed. Printed pages/covers/paper backs keep existing texture/PBR inputs and add a bounded `onBeforeCompile` paper layer for static fiber, ink micro-contrast, and edge shade. No new raster asset was introduced.
-- [x] S14-TURN-1: Passed. Active turn/peel leaf now has an independent transparent bend cue overlay. Settled pages do not share the dynamic cue uniform, and page dimensions/camera framing were not changed.
-- [x] S14-STANDEE-1: Passed. Standee material adds a soft alpha edge and subtle rim while preserving the raw `TextureLoader`/NCC/anchor/commentary/action paths.
-- [x] S14-GRADE-1: Passed. Lightweight grade is folded into the existing GrainShader pass, with grade parameters in `render-config.js`; `BokehPass` remains disabled and tone mapping remains `THREE.NeutralToneMapping`.
-- [x] S14-VERIFY-1: Passed. `visual:smoke` exists and covers desktop/mobile WebGL render, standee presence, Bokeh off, tone mapping config match, and reduced-motion grain disablement. Docs and asset audit were updated.
-
-## Verification Commands
+## 验收命令重跑结果
 
 ### `npm run build`
 
-Exit code: 0.
+Exit 0.
 
 Summary:
-- Vite v8.0.16 build completed.
-- `✓ built in 681ms`
-- `dist/` remains 93.7 MB scale.
-- Existing chunk-size warning remains: `Some chunks are larger than 500 kB after minification.`
+- Vite v8.0.16 production build completed.
+- `142 modules transformed`.
+- Built in `503ms`.
+- Existing warning remains: one JS chunk is larger than 500 kB after minification.
 
 ### `npm run asset:audit`
 
-Exit code: 0.
+Exit 0.
 
 Summary:
-- Generated: `2026-06-23T10:39:06.627Z`
-- Files audited: 558
-- Total size: 708.4 MB
-- built `dist/`: 93.7 MB
-- WebGL variant drift check: None. Every canonical WebGL-only PNG has a matching, up-to-date `images-webgl/*.webp` display copy.
+- Generated: `2026-06-23T12:30:38.567Z`.
+- Files audited: `558`.
+- Built `dist/`: `93.7 MB`.
+- `dist/assets`: `79.2 MB`.
+- WebGL variant drift check: `None. Every canonical WebGL-only PNG has a matching, up-to-date images-webgl/*.webp display copy.`
 
 ### `npm run visual:smoke`
 
-Exit code: 0.
+Exit 0.
 
 Summary:
-- Browser: `C:\Program Files\Google\Chrome\Application\chrome.exe`
-- Desktop screenshot: `D:\work\AnimeMagazine\tmp\visual-smoke\desktop-1280x800.png`
-- Mobile screenshot: `D:\work\AnimeMagazine\tmp\visual-smoke\mobile-375x812.png`
-- Desktop 1280x800: `standeeCount=15`, target standee `risen`, `materialHasShader=true`, `bokehEnabled=false`, `toneMappingMatchesConfig=true`, `grainEnabled=true`, `nonBlankFraction=1`, `avgLum=101.19`, `pass=true`.
-- Mobile 375x812: `standeeCount=15`, target standee `risen`, `materialHasShader=true`, `bokehEnabled=false`, `toneMappingMatchesConfig=true`, `reducedMotion=true`, `grainEnabled=false`, `nonBlankFraction=1`, `avgLum=101.33`, `pass=true`.
+- Desktop `1280x800`: `standeeCount=15`, target standee `risen`, `materialHasShader=true`, `bokehEnabled=false`, `toneMappingMatchesConfig=true`, `nonBlankFraction=1`, `avgLum=101.18`, `pass=true`.
+- Mobile `375x812`: `standeeCount=15`, target standee `risen`, `materialHasShader=true`, `bokehEnabled=false`, `toneMappingMatchesConfig=true`, `reducedMotion=true`, `grainEnabled=false`, `nonBlankFraction=1`, `avgLum=101.34`, `pass=true`.
+- Screenshot inspected manually: `tmp/visual-smoke/mobile-375x812.png` shows the primary-event UI, bottom status, standee, and core controls without obvious overlap.
 
-### Contract `Select-String` Checks
+### `npm run narrative:smoke`
+
+Exit 0.
+
+Summary:
+- Pure resolver resolved mock spreads as `lookCard`, `runway`, and `read`.
+- Interactive app: `exactlyOneBeatPerSpread=true`, `beatCount=8`, beat types were `runway` plus seven `commentary` events.
+- Deep link landed `state=open`, `spreadIndex=3`, `locale=zh`, `lookCard=true`, `activeItem=0`.
+- Gallery opened as DOM `鑑賞`: `realImgPages=18`, `hasCanvasFallback=false`; closing landed cleanly to `state=open`, `spreadIndex=3`.
+- Look-card opened item `0` and did not persist temporary card state.
+- Guided tour and runway show both opened on representative risen standees.
+- Reduced-motion path: `reducedMotion=true`, `grainEnabled=false`, `discoveryClassCount=0`, primary beat visible.
+- Summary written to `tmp/narrative-smoke/summary.json`.
+
+### `Select-String -Path 'src/magazineScene.js' -Pattern 'this.bokehPass.enabled = false'`
+
+Exit 0.
+
+Result:
 
 ```text
-src\magazineScene.js:568:    this.bokehPass.enabled = false;
+src\magazineScene.js:577:    this.bokehPass.enabled = false;
+```
+
+### `Select-String -Path 'src/render-config.js' -Pattern 'NeutralToneMapping'`
+
+Exit 0.
+
+Result:
+
+```text
 src\render-config.js:46:    toneMapping: THREE.NeutralToneMapping,
 src\render-config.js:127:  // Sprint 14 keeps renderer.toneMapping on THREE.NeutralToneMapping. This is a
-docs\FUTURE.md:235:## Sprint 14 — 纸张/印刷 shader 与轻量色彩分级（P1，已完成）
 ```
+
+### `Select-String -Path 'docs/FUTURE.md' -Pattern 'Sprint 15'`
+
+Exit 0.
+
+Result:
+
+```text
+docs\FUTURE.md:260:## Sprint 15 — 叙事节奏与跨页主事件（P1）
+```
+
+### `Select-String -Path 'docs/state-matrix.md' -Pattern 'state','turn','show','tour','gallery','lookCard','peel'`
+
+Exit 0.
+
+Summary:
+- All seven terms appear in the state vocabulary and entry-policy table.
+- The matrix states policies for page turn, gallery, look-card, tour, show, discovery cue, and gallery landing.
+- It explicitly documents that `syncNarrativeBeat()` is display-only and does not queue transitions or write preferences.
 
 ### `git diff --check`
 
-Exit code: 0. Output only contains LF-to-CRLF working-copy warnings; no whitespace errors.
+Exit 0.
 
-### Port Cleanup
+Summary:
+- No whitespace errors.
+- Only LF-to-CRLF working-copy warnings for modified files.
 
-`Get-NetTCPConnection -LocalPort 5178` shows only `TimeWait` / `OwningProcess 0`; no live visual-smoke Vite/Chrome process is holding the port.
+## Generator 报告 vs 实际对比
 
-## Boundary Checks
+Generator reported `PASSED`. Evaluator reran every contract command independently and got matching pass results.
 
-- DOM `鑑賞` remains a real `<img>` reader. `src/magazineScene.js` still creates page `img` elements and uses `pageFlip.loadFromHTML(...)`; WebGL display WebP variants do not replace the reading-layer canonical PNG path.
-- Sprint 13b resource boundary is intact: `docs/asset-audit.md` still reports `dist/` at 93.7 MB and WebGL variant drift check is clean.
-- `BokehPass` remains present but disabled by default.
-- `renderer.toneMapping` remains centralized through `RENDER.renderer.toneMapping = THREE.NeutralToneMapping`.
-- Reduced-motion is covered by visual smoke: mobile emulation reports `grainEnabled=false` and `grainTime=0`.
-- Final mobile screenshot was visually inspected after the CSS polish; the decorative feature line is hidden on narrow screens, avoiding overlap with controls and the risen standee.
+Observed differences:
+- Build timing differed (`906ms` reported vs `503ms` observed), not material.
+- Asset audit timestamp differed because Evaluator reran the audit.
+- Visual smoke luminance matched within rounding (`avgLum` around `101.18` / `101.34`).
+- Narrative smoke results matched the reported state coverage.
 
-## Residual Risk / Nits
+No acceptance gap found.
 
-- This is not a true subagent-independent eval because the evaluator agent hit the account usage limit. The command evidence is fresh, but the independence guarantee is weaker than a normal multi-ralph closeout.
-- Shader quality is verified by smoke metrics and screenshot inspection, not by a broad manual page-by-page art review. Wider aesthetic QA across all spreads can remain a later polish pass.
-- `visual:smoke` relies on system Chrome/Edge and CDP. The script handles cleanup, but this should remain documented as a validation pitfall.
+## pitfalls 合规检查
 
-## Required Fixes
+- DOM `鑑賞` remains real DOM images: `toggleGallery()` creates `document.createElement("img")` pages and calls `pageFlip.loadFromHTML(...)`; narrative smoke confirmed `hasCanvasFallback=false`.
+- BokehPass remains disabled by default at `src/magazineScene.js:577`.
+- Tone mapping remains `THREE.NeutralToneMapping` in `src/render-config.js`.
+- `src/narrativeBeats.js` is a pure resolver module: no DOM access, no WebGL access, no runtime `this.standees` dependency.
+- `syncNarrativeBeat()` updates HUD text, dataset, and CSS classes only. It does not call `savePreferences`, does not enqueue turns, and does not open gallery/show/card/tour.
+- `tryDiscoveryCue()` is per-session (`discoverySeen`) and returns while gallery/lookCard/show/tour is active; reduced-motion does not receive `.is-discovery` animated emphasis.
+- State guards match the Sprint 15 matrix in the touched entry points: `openLookCard`, `startTour`, `startShow`, `toggleGallery`, and discovery cues use return/close/clear-peel policies instead of queuing hidden work.
+- Port cleanup check after smoke: port `5178` only had `TIME_WAIT` entries with `OwningProcess 0`; no live Vite/Chrome smoke process was left occupying the port.
 
-- None.
+No known pitfall violation found.
+
+## 失败原因分析（如有）
+
+None. All checkboxes are complete, all verification commands pass, and extra high-risk checks pass.
+
+## 新陷阱待追加（如有）
+
+- [状态 / narrative] Primary-event HUD and discovery cues must stay display-only: do not write preferences, and do not queue turn/show/gallery/card transitions. While another owner state is active, close or return according to `docs/state-matrix.md`.
+
+## 决策
+
+COMPLETE
+
+DECISION: COMPLETE

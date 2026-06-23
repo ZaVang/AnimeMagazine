@@ -1,52 +1,53 @@
 # Iteration 1 Plan
 
 ## 待完成任务（按依赖顺序）
-1. S14-PAPER-1: Printed paper material layer
-   - 目标：让印刷页与封面表面呈现更可信的纸张、油墨和页缘质感，同时保持现有资源边界。
+1. S15-BEAT-1: Primary-event data layer
+   - 目标：为每个 spread 建立一个可解析的 primary narrative event，并在缺少 metadata 时稳定降级。
    - 依赖：无
-   - 验收：页面和封面仍使用现有纹理与 PBR 纸张资源；视觉读感是纸和印刷油墨而非塑料、玻璃、发光界面或屏幕遮罩；效果可控且不引入大型新资产。
+   - 验收：现有 commentary 数据继续有效；可选 beat / focus metadata 能描述 primary event、emphasis 与 gentle prompt；每个 spread 恰好解析出一个 primary event；解析逻辑可在不启动 WebGL 的情况下验证。
 
-2. S14-TURN-1: Bend-dependent page highlight/shadow
-   - 目标：让正在剥离或翻动的纸页出现轻微的弯折相关明暗线索，增强纸张厚度与受力感。
-   - 依赖：S14-PAPER-1
-   - 验收：明暗线索只出现在剥离、翻页或活动翻页叶片上；静止页面保持稳定阅读观感；现有翻页状态行为、页面尺寸和相机取景不变；页面内容不被明暗效果遮蔽到不可读。
+2. S15-HUD-1: Primary-event HUD emphasis and noise reduction
+   - 目标：让当前 primary event 更容易被注意到，同时让非主事件控件保持可用但视觉上更安静。
+   - 依赖：S15-BEAT-1
+   - 验收：HUD 以小型、非说明书式方式呈现当前 primary event；鑑賞、look-card、guided tour/commentary 与 runway 控件可用时仍可触达；375px mobile 不出现 primary-event UI、bottom status、standee 与核心控件重叠；reduced-motion 下没有 pulsing、swaying 或 animated discovery emphasis。
 
-3. S14-STANDEE-1: Standee rim and soft cutout integration
-   - 目标：降低立牌像平面贴纸的感觉，增加轻微边缘融合，同时保留纸质切片角色。
-   - 依赖：S14-PAPER-1
-   - 验收：立牌匹配、锚点、点击目标、commentary UI、透明行为和动作逻辑继续正常；透明边缘没有明显 halo 或黑边；reduced-motion 用户不会看到快速脉冲或嘈杂边缘动画。
+3. S15-DISCOVERY-1: First-time discovery cues
+   - 目标：让首次用户在不依赖键盘快捷键或长说明文字的情况下发现 page turn、standee、鑑賞、commentary、look-card 与 runway。
+   - 依赖：S15-BEAT-1, S15-HUD-1
+   - 验收：每个 cue 都符合场景语境，优先使用相机、灯光、柔和热点、tag 或控件强调而不是解释性文案；每个 cue 每会话最多出现一次，或仅在相关 event 可用时出现；cue 尊重 reduced-motion 且不引入静态或动态噪声；deep link、gallery landing、look-card、tour 与 runway flow 不被 discovery cue 打断。
 
-4. S14-GRADE-1: Lightweight color grade and reduced-motion guard
-   - 目标：加入轻量、可控的色彩层次调整，并确保所有时间驱动视觉效果尊重 reduced-motion。
-   - 依赖：S14-PAPER-1、S14-TURN-1、S14-STANDEE-1
-   - 验收：BokehPass 默认保持关闭；renderer tone mapping 仍为 THREE.NeutralToneMapping；所有时间驱动 shader 或 postprocess 在 reduced-motion 下禁用或冻结，静态纸张纹理允许保留；属于渲染基线的视觉常量保持集中，非相关物理或材质逻辑不混入其中。
+4. S15-STATE-1: Seven-state matrix and guards
+   - 目标：复核七状态交互矩阵，明确新增或触碰入口在其他状态活跃时的处理策略。
+   - 依赖：S15-BEAT-1, S15-HUD-1, S15-DISCOVERY-1
+   - 验收：项目文档列出 state / turn / show / tour / gallery / lookCard / peel 的策略；新增或触碰入口声明在其他状态活跃时是关闭、返回还是排队；存在 repo-local smoke command 覆盖代表性状态转换：deep link、gallery landing、look-card、runway/tour 与 reduced-motion。
 
-5. S14-VERIFY-1: Visual verification and documentation
-   - 目标：留下可重复的构建、资源审计、视觉 smoke 与文档证据，证明 Sprint 14 完成且未突破 Sprint 13b 的资源和阅读器边界。
-   - 依赖：S14-PAPER-1、S14-TURN-1、S14-STANDEE-1、S14-GRADE-1
-   - 验收：构建通过；资源审计通过且 WebGL 变体漂移检查保持干净；存在 repo-local visual smoke 且通过；visual smoke 覆盖桌面 1280x800 与移动端 375x812，确认 WebGL 非空并记录截图路径或摘要指标；docs/FUTURE.md 标记 Sprint 14 完成或明确 defer；如引入新脚本、文件或材质模块，项目结构文档同步更新。
+5. S15-VERIFY-1: Verification and roadmap closeout
+   - 目标：留下可重复证据，证明 Sprint 15 完成且未回归 Sprint 13/14 边界。
+   - 依赖：S15-BEAT-1, S15-HUD-1, S15-DISCOVERY-1, S15-STATE-1
+   - 验收：build、asset audit、visual smoke 与 narrative smoke 均通过；roadmap 标记 Sprint 15 完成或明确 defer 残余产品 polish；项目结构文档更新新模块、脚本或文档；Bokeh 默认关闭、NeutralToneMapping、DOM 鑑賞真实图片层、WebGL variant drift 等边界不回归。
 
 ## 相关陷阱（从 pitfalls.md 筛选）
-- [预览 / 验证] 本应用是持续 rAF 的 three.js canvas，preview_screenshot 容易超时；视觉 smoke 应使用项目既有可重复验证路径，并显式覆盖 1280x800 与 375x812。
-- [预览 / 验证] 鑑賞 overlay 是 DOM `<img>`，不在 canvas 像素捕获里；不能用 canvas 像素结论替代 DOM 阅读器边界验证。
-- [渲染 / 画质] 941x1672 是当前印刷源图清晰度天花板；shader、SSAA 或材质增强不能被表述为突破源素材小字清晰度上限。
-- [渲染 / 画质] BokehPass 默认关闭；本 sprint 不能把景深重新作为默认开启效果。
-- [加载 / 纹理] 内页和封面可以使用现有 bitmap 解码路径；立牌相关贴图必须保持 raw、不预翻转，否则会破坏像素分析、裁剪和匹配。
-- [渲染 / 画质] Grain 或其他时间驱动视觉效果在 reduced-motion 下应被整体禁用或冻结，避免静态颗粒、快速脉冲或额外 shader 成本。
-- [渲染 / 画质] light color hex 不要套用 LinearSRGBColorSpace；该规则只适用于 background、fog、material color 等特定色值路径。
-- [渲染 / 画质] render-config.js 的边界是渲染基线、光照、环境桶和后期基线；不要把材质美术、物理布置或状态机逻辑混入其中。
-- [渲染 / 画质] NeutralToneMapping 应按 THREE.NeutralToneMapping 语义引用，不写死常量数值。
-- [通用] magazineScene.js 体量大，任何视觉改动都应避免无关大重构，尤其不要为了本轮材质 pass 扩散到导航、页数、阅读器或 TTS 领域。
+- [鑑賞 / DOM] 鑑賞 overlay 必须继续是真实 DOM `<img>`，canvas/WebGL smoke 捕获不到它，不能回退到 canvas 或用 canvas 证据替代 DOM 验证。
+- [渲染 / 画质] BokehPass 默认关闭，renderer toneMapping 使用 `THREE.NeutralToneMapping`，Sprint 15 不能借 HUD 或 cue 改动重开重型后期或改 tone mapping。
+- [commentary / card 数据] 卡片与 commentary 可用性必须来自 module-level 索引，不能依赖运行期 `this.standees` 是否已经 build 完成，避免冷启动竞态。
+- [状态机] 新增 overlay 或入口必须扫七状态 guard 矩阵，明确 state、turn、show、tour、gallery、lookCard、peel 交叉时的行为。
+- [切层 race] 任何切层 toggle 路径都要防止在飞 turn 或 stale state 覆盖刚落定的 spread/state。
+- [reduced-motion] reduced-motion 用户不能收到 animated pulse、静态 frozen noise 或依赖延时动画的发现 cue。
+- [移动端 HUD] 375px 窄屏装饰性 HUD 元素可牺牲，核心控件、standee 与阅读内容不可被装饰压住。
+- [偏好持久化] 不要把 card、tour、runway 或 discovery 的临时状态持久化到 preferences。
 
 ## 上轮失败分析（仅迭代 2+ 有 eval.md 时填写）
-- 不适用：这是 Sprint 14 Iteration 1；当前 docs/orch/eval.md 来自 Sprint 13，旧报告不作为本轮失败输入。
+- 不适用：这是 Sprint 15 Iteration 1；历史 Sprint 14 eval 不作为失败输入。
 
-## 验收命令（从 SPRINT14.md 的验收命令章节原样复制）
+## 验收命令（从 SPRINT15.md 的验收命令章节原样复制）
 ```powershell
 npm run build
 npm run asset:audit
 npm run visual:smoke
+npm run narrative:smoke
 Select-String -Path 'src/magazineScene.js' -Pattern 'this.bokehPass.enabled = false'
 Select-String -Path 'src/render-config.js' -Pattern 'NeutralToneMapping'
-Select-String -Path 'docs/FUTURE.md' -Pattern 'Sprint 14'
+Select-String -Path 'docs/FUTURE.md' -Pattern 'Sprint 15'
+Select-String -Path 'docs/state-matrix.md' -Pattern 'state','turn','show','tour','gallery','lookCard','peel'
+git diff --check
 ```

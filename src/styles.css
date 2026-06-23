@@ -146,6 +146,34 @@ body {
   gap: 8px;
 }
 
+.hud-beat[hidden] {
+  display: none;
+}
+
+.hud-beat {
+  margin-top: 10px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  max-width: min(44vw, 340px);
+  color: var(--paper-dim);
+}
+
+.hud-beat-kind {
+  font-family: var(--font-jp);
+  font-size: 10px;
+  letter-spacing: 0.24em;
+  text-indent: 0.24em;
+  color: var(--paper);
+}
+
+.hud-beat-prompt {
+  font-size: 9px;
+  letter-spacing: 0.16em;
+  color: var(--paper-faint);
+  white-space: nowrap;
+}
+
 /* C7: language toggle, sharing the quiet pill language of the bottom HUD
    buttons but anchored under the masthead so it never collides with the
    bottom-center status column (A1) and stays reachable on touch. */
@@ -263,6 +291,27 @@ body {
   color: var(--paper);
 }
 
+.hud-read.is-primary,
+.hud-tour.is-primary,
+.hud-card.is-primary {
+  border-color: rgba(255, 248, 238, 0.76);
+  background: rgba(255, 248, 238, 0.13);
+  color: var(--paper);
+}
+
+.hud-read.is-secondary,
+.hud-tour.is-secondary,
+.hud-card.is-secondary {
+  opacity: 0.64;
+}
+
+.hud-read.is-discovery,
+.hud-tour.is-discovery,
+.hud-card.is-discovery {
+  border-color: rgba(255, 248, 238, 0.88);
+  box-shadow: 0 0 0 1px rgba(255, 248, 238, 0.20), 0 8px 28px rgba(255, 230, 190, 0.10);
+}
+
 .hud-feature {
   position: absolute;
   top: max(26px, env(safe-area-inset-top));
@@ -361,6 +410,14 @@ body {
    the tallest the pill column reaches. Wide viewports keep the corner anchor. */
 @media (max-width: 640px) {
   .hud-feature {
+    display: none;
+  }
+
+  .hud-beat {
+    max-width: min(58vw, 230px);
+  }
+
+  .hud-beat-prompt {
     display: none;
   }
 

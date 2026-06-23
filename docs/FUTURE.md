@@ -261,13 +261,19 @@ defer（不阻塞 13b 合并）：
 
 目标：让杂志像一段可交互 editorial tour，而不是功能按钮并列的 3D demo。
 
-- [ ] 为每个 spread 标一个主视觉事件：安静阅读、立牌起立、单品解说、look-card、runway、封面/封底仪式感。
-- [ ] 每个跨页默认只强调一个主事件；其它入口保留但降噪，避免 HUD 同时抢戏。
-- [ ] 首次进入某类事件时用场景内动势引导，优先通过镜头、光、热点呼吸、纸质吊牌出现来提示，少加说明文字。
-- [ ] 给 `commentary.json` 增加可选 `beat`/`focus` 元数据（不影响现有 schema）：用于决定镜头轻推、字幕节奏、
+- [x] 为每个 spread 标一个主视觉事件：安静阅读、立牌起立、单品解说、look-card、runway、封面/封底仪式感。
+- [x] 每个跨页默认只强调一个主事件；其它入口保留但降噪，避免 HUD 同时抢戏。
+- [x] 首次进入某类事件时用场景内动势引导，优先通过镜头、光、热点呼吸、纸质吊牌出现来提示，少加说明文字。
+- [x] 给 `commentary.json` 增加可选 `beat`/`focus` 元数据（不影响现有 schema）：用于决定镜头轻推、字幕节奏、
       是否自动提示 look-card 或 runway。
-- [ ] 复查七状态互斥矩阵：`state` / `turn` / `show` / `tour` / `gallery` / `lookCard` / `peel`。新入口必须说明遇到其它状态时是
+- [x] 复查七状态互斥矩阵：`state` / `turn` / `show` / `tour` / `gallery` / `lookCard` / `peel`。新入口必须说明遇到其它状态时是
       close、return 还是 queue。
+
+交付：
+
+- `src/narrativeBeats.js` 作为纯 primary-event resolver；现有 `commentary.json` 无需改动，未来可选补 `beat` / `focus`。
+- HUD 增加小型 primary-event chip 与主次按钮状态；`鑑賞`、look-card、tour/commentary、runway 均保留可触达。
+- `docs/state-matrix.md` + `npm run narrative:smoke` 覆盖 deep link、gallery landing、look-card、runway/tour、reduced-motion。
 
 验收：
 

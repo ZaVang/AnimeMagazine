@@ -1,6 +1,6 @@
 # Asset Audit
 
-Generated: 2026-06-23T10:39:06.627Z
+Generated: 2026-06-23T12:30:38.567Z
 
 ## Command
 
@@ -9,8 +9,8 @@ Generated: 2026-06-23T10:39:06.627Z
 ## Summary
 
 - Files audited: 558
-- Total bytes: 742858356
-- Total size: 708.4 MB
+- Total bytes: 742865882
+- Total size: 708.5 MB
 - Scope: `assets/`, `public/`, and `dist/` when present.
 
 ## Missing Scopes
@@ -22,7 +22,7 @@ Generated: 2026-06-23T10:39:06.627Z
 | Key | Files | Bytes | Size |
 |---|---:|---:|---:|
 | `source assets` | 444 | 629386791 | 600.2 MB |
-| `built dist` | 105 | 98231984 | 93.7 MB |
+| `built dist` | 105 | 98239510 | 93.7 MB |
 | `source public` | 9 | 15239581 | 14.5 MB |
 
 ## Totals by extension
@@ -35,10 +35,10 @@ Generated: 2026-06-23T10:39:06.627Z
 | `.webp` | 150 | 79276868 | 75.6 MB |
 | `.mp4` | 2 | 7679952 | 7.32 MB |
 | `.jpg` | 12 | 3739432 | 3.57 MB |
-| `.js` | 1 | 932228 | 910.4 KB |
+| `.js` | 1 | 938973 | 917.0 KB |
 | `.md` | 90 | 469079 | 458.1 KB |
 | `.json` | 30 | 97625 | 95.3 KB |
-| `.css` | 1 | 18002 | 17.6 KB |
+| `.css` | 1 | 18783 | 18.3 KB |
 | `.txt` | 14 | 4298 | 4.20 KB |
 | `.html` | 1 | 3127 | 3.05 KB |
 
@@ -49,7 +49,7 @@ Generated: 2026-06-23T10:39:06.627Z
 | `assets/image-packs/images` | 153 | 256432760 | 244.6 MB |
 | `assets/pbr` | 4 | 181207544 | 172.8 MB |
 | `assets/backup` | 41 | 87924451 | 83.9 MB |
-| `dist/assets` | 95 | 82989276 | 79.1 MB |
+| `dist/assets` | 95 | 82996802 | 79.2 MB |
 | `assets/image` | 24 | 50681424 | 48.3 MB |
 | `assets/image-packs/images-webgl` | 75 | 39638434 | 37.8 MB |
 | `dist/pbr` | 8 | 13215303 | 12.6 MB |

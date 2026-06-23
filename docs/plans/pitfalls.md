@@ -148,3 +148,7 @@
 
 - **CDP visual smoke 必须显式清理 target + 子进程，否则可能在截图写出后卡住退出**（S14-VERIFY-1）：`Page.captureScreenshot` 已返回不代表脚本会自然结束；Chrome target/WebSocket、headless Chrome 子进程、Vite 子进程任一处悬挂，都会让 `npm run visual:smoke` 在成功截图后卡住。脚本应 best-effort `json/close/{targetId}`、关闭 WebSocket、kill 自己启动的 Chrome/Vite，并在 summary 输出后显式 `process.exit(code)`。验收后还应查 5178 只剩 `TimeWait` / `OwningProcess 0`，不要留下活进程占口。
 - **375px 窄屏没有稳定的右侧装饰竖排落点；`.hud-feature` 应隐藏而非硬挪**（S14-VERIFY-1）：masthead action row、risen standee、bottom status column 同屏时，右侧竖排特集文案无论贴顶部还是下移都容易压到按钮或人物。它是装饰信息，不是主交互；窄屏应 `display:none`，保留 controls、standee 与页面阅读空间。未来新增装饰性 HUD 元素要优先问"手机上是否有稳定空位"，不要为了保留装饰牺牲可操作控件。
+
+## 状态 / Narrative beats（Sprint 15 新增）
+
+- **primary-event HUD 与 discovery cue 必须保持 display-only，不写 preferences、不排队状态**（S15-STATE-1）：`syncNarrativeBeat()` / discovery cue 只能更新 HUD 文案、dataset、CSS class 或一次性 session set；不得调用 `savePreferences`，不得暗中 queue turn/show/gallery/card/tour，也不得在 overlay/show/tour/card 活跃时延迟执行隐藏动作。遇到已有 owner state 时按 `docs/state-matrix.md` 明确 close 或 return。这个规则保护 deep link、gallery landing、look-card、runway/tour 与 reduced-motion 路径不被“温柔提示”反向打断。
