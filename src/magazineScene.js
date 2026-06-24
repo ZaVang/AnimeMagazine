@@ -19,9 +19,35 @@ import {
   narrativeEventText,
 } from "./narrativeBeats.js";
 import { RENDER } from "./render-config.js";
+import { voiceUrlFor } from "./voice.js";
 
 const coverFrontUrl = new URL("../assets/image/cover.png", import.meta.url).href;
 const backCoverUrl = new URL("../assets/image/back-cover.png", import.meta.url).href;
+
+// S18-BUS-1: walk a commentary object and attach a build-time-resolved
+// `voiceUrl` (or null) to every line that can speak — `intro`, each `item`,
+// and `runwayIntro`. The optional `voice` field is a pack-relative path; with
+// zero voice assets today every resolution is null, so this is a pure no-op
+// decoration that keeps the rest of the pipeline (look card, narrative beats)
+// untouched. Lines are shallow-cloned so the shared eager-glob JSON is never
+// mutated. `mouth` is passed through unchanged for the lip-sync layer.
+// Declared before the PAGE_PACKS IIFE below, which calls it at module load.
+const resolveLineVoice = (line, packId) => {
+  if (!line || typeof line !== "object") return line;
+  return { ...line, voiceUrl: voiceUrlFor(packId, line.voice) };
+};
+const decorateCommentaryVoice = (commentary, packId) => {
+  if (!commentary || typeof commentary !== "object") return commentary;
+  const next = { ...commentary };
+  if (commentary.intro) next.intro = resolveLineVoice(commentary.intro, packId);
+  if (commentary.runwayIntro) {
+    next.runwayIntro = resolveLineVoice(commentary.runwayIntro, packId);
+  }
+  if (Array.isArray(commentary.items)) {
+    next.items = commentary.items.map((item) => resolveLineVoice(item, packId));
+  }
+  return next;
+};
 
 // Interior pages come from asset packs: every numeric folder under
 // assets/image-packs is one page, in numeric order. DOM reading keeps canonical
@@ -75,7 +101,13 @@ const PAGE_PACKS = (() => {
     const match = path.match(/image-packs\/(\d+)\/commentary\.json$/);
     if (!match) continue;
     const pack = packs.get(Number(match[1]));
-    if (pack) pack.commentary = data;
+    // S18-BUS-1: decorate each commentary line (intro / items / runwayIntro)
+    // with a build-time-resolved `voiceUrl` (null today — no voice assets). The
+    // glob lookup runs once at module load, mirroring page-image resolution; the
+    // original commentary JSON is never mutated (the index data is frozen/shared
+    // with the look-card + narrative modules), so we shallow-clone the lines we
+    // touch and leave everything else untouched.
+    if (pack) pack.commentary = decorateCommentaryVoice(data, Number(match[1]));
   }
   return [...packs.values()]
     .filter((pack) => pack["main-visual"])
@@ -146,6 +178,20 @@ const AUDIO_SOURCES = {
   coverClose: ["/audio/cover-close"],
   roomTone: ["/audio/room-tone"],
 };
+
+// S18 voice channel tuning.
+const ROOM_TONE_GAIN = 0.05; // looped ambience resting level
+const ROOM_TONE_DUCK = 0.35; // multiplier applied to ambience while a voice plays
+const VOICE_GAIN = 0.9; // per-voice playback gain
+// Caption fade-out window after a line ends (spec: 0.6–1.2 s). A subtitle that
+// has no voice still uses the existing 6.5 s auto-hide; this timer governs the
+// "fade N ms after the voice finished" path only.
+const VOICE_CAPTION_FADE_MS = 900;
+// Repeated taps on the same hotspot within this window are debounced: the line
+// is already (or just) speaking, so a re-tap must not stack a second voice.
+const VOICE_RETAP_DEBOUNCE_MS = 280;
+// Lip-sync RMS threshold (0..1) above which the mouth reads as "open".
+const MOUTH_RMS_THRESHOLD = 0.06;
 
 const PAGE_WIDTH = 1.18;
 const PAGE_HEIGHT = 2.1;
@@ -352,6 +398,26 @@ export class MagazineScene {
       typeof window.matchMedia === "function" &&
       window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     this.audio = { ctx: null, buffers: new Map(), started: false };
+    // S18 voice channel: an optional enhancement layer over the existing bus.
+    //   roomToneGain — the looped ambience gain, ducked while a voice plays.
+    //   voiceGain    — a dedicated gain node every voice source routes through.
+    //   voiceAnalyser — taps the active voice for RMS-driven lip sync.
+    //   voice        — the active voice play session (source + bookkeeping) | null.
+    //   voiceUrlCache — decoded AudioBuffers keyed by URL, so a re-tap of the
+    //                   same line does not re-fetch/decode.
+    //   captionFadeTimer — pending caption fade-out (cleared on every teardown).
+    //   lastVoiceTapAt / lastVoiceTapKey — debounce rapid repeat taps.
+    this.roomToneGain = null;
+    this.voiceGain = null;
+    this.voiceAnalyser = null;
+    this.voice = null;
+    this.voiceUrlCache = new Map();
+    this.voiceFreqData = null;
+    this.captionFadeTimer = null;
+    this.lastVoiceTapAt = 0;
+    this.lastVoiceTapKey = null;
+    this.activeMouthCard = null;
+    this.lastVoiceRms = 0;
 
     // Persisted preferences (locale / skip-intro / last spread). Read once up
     // front; every later write goes through savePreferences so the on-disk blob
@@ -2314,8 +2380,14 @@ uniform float uStandeeAlphaHigh;
     cui.thread.visible = true;
 
     this.setExpressionHint(standee, item.expression);
-    this.setCaption(item.text);
     this.playSound("pageTurn", { gain: 0.12, rate: 1.7 });
+    // S18: caption + optional voice + optional lip sync. With no voiceUrl this
+    // is just setCaption(item.text) — identical to the previous behavior. The
+    // dedup key is the standee+item so a rapid re-tap of the same hotspot is
+    // debounced instead of stacking a second voice.
+    this.playVoice(item, item.text, standee.card, {
+      dedupKey: `${standee.spread}:${standee.side}:${index}`,
+    });
   }
 
   hideCommentary(standee) {
@@ -2324,7 +2396,10 @@ uniform float uStandeeAlphaHigh;
     cui.activeIndex = -1;
     cui.tagGroup.visible = false;
     cui.thread.visible = false;
-    if (!this.tour) this.hideCaption();
+    if (!this.tour) {
+      this.stopVoice(); // S18: a hidden commentary line stops its voice too
+      this.hideCaption();
+    }
   }
 
   setExpressionHint(standee, hint) {
@@ -2352,15 +2427,21 @@ uniform float uStandeeAlphaHigh;
     }
     const intro = standee.commentary.intro;
     this.setExpressionHint(standee, intro?.expression);
-    this.setCaption(intro);
     this.syncNarrativeBeat(true);
     this.playSound("pageTurn", { gain: 0.2, rate: 1.4 });
+    // S18: the tour intro caption + optional voice. The tour owns the caption
+    // cadence, so scheduleCaptionFade no-ops while a tour is running.
+    this.playVoice(intro, intro, standee.card, {
+      dedupKey: `tour-intro:${standee.spread}`,
+    });
   }
 
   endTour() {
     const tour = this.tour;
     if (!tour) return;
     this.tour = null;
+    this.stopVoice(); // S18: stop any in-flight tour voice + clear lip sync
+    this.clearCaptionFade();
     this.hideCommentary(tour.standee);
     this.hideCaption();
     tour.standee.idleAt = performance.now() + 4500 + Math.random() * 2500;
@@ -2765,12 +2846,17 @@ uniform float uStandeeAlphaHigh;
     this.clearPeel();
     this.cancelStandeeAction(standee);
     this.hideCommentary(standee);
+    this.stopVoice(); // S18: interrupt any in-flight commentary voice
     this.fadeHint();
     const runwayIntro = standee.commentary?.runwayIntro;
     if (runwayIntro) {
-      this.setCaption(runwayIntro);
+      // S18: caption + optional runway voice. With no voiceUrl this is the same
+      // setCaption as before; the 4.2 s auto-hide remains the legacy fallback.
+      this.playVoice(runwayIntro, runwayIntro, standee.card, {
+        dedupKey: `runway:${standee.spread}`,
+      });
       window.setTimeout(() => {
-        if (!this.disposed && !this.tour) this.hideCaption();
+        if (!this.disposed && !this.tour && !this.voice) this.hideCaption();
       }, 4200);
     }
     this.lightLevels ??= {
@@ -2856,6 +2942,8 @@ uniform float uStandeeAlphaHigh;
     const show = this.show;
     if (!show) return;
     this.show = null;
+    this.stopVoice(); // S18: end-of-show tears down the runway caption + voice
+    this.hideCaption();
     const standee = show.standee;
     if (standee.stage) standee.stage.visible = false;
     if (standee.video) {
@@ -2944,6 +3032,7 @@ uniform float uStandeeAlphaHigh;
   foldStandees(immediate = false) {
     if (this.show) this.endShow(true);
     if (this.tour) this.endTour();
+    this.stopVoice(); // S18: a fold tears down captions today → tear down voice too
     for (const standee of this.standees.values()) {
       if (standee.state === "folded") continue;
       this.cancelStandeeAction(standee);
@@ -3068,9 +3157,12 @@ uniform float uStandeeAlphaHigh;
         card.group.scale.setScalar(Math.max(0.001, card.scale));
         card.group.visible = card.scale > 0.02;
 
-        // auto blink with the closed-eyes cut
+        // auto blink with the closed-eyes cut. S18: while this card is driving
+        // a mouth from voice amplitude, the lip-sync owns its UVs — skip blink
+        // so the two never fight (no-op on current assets: no card has a mouth
+        // mapping, so activeMouthCard stays null).
         const blinkCell = card.blinkCell ?? BLINK_CELL;
-        if (wantCard && card.cell !== blinkCell) {
+        if (wantCard && card.cell !== blinkCell && this.activeMouthCard !== card) {
           const nowMs = performance.now();
           if (!card.blinkAt) card.blinkAt = nowMs + 2400 + Math.random() * 3200;
           if (nowMs > card.blinkAt + 140) {
@@ -3864,6 +3956,9 @@ uniform float uStandeeAlphaHigh;
   // secondary line is cleared: we now show one language, not both stacked.
   setCaption(field) {
     if (!this.hudCaption) return;
+    // S18: a fresh caption cancels any pending fade from the previous line, so
+    // a stale fade timer can't yank this new subtitle off a beat after it shows.
+    this.clearCaptionFade();
     this.captionField = field;
     this.hudCaption.querySelector(".cap-ja").textContent = localeText(field, this.locale);
     this.hudCaption.querySelector(".cap-zh").textContent = "";
@@ -3871,6 +3966,8 @@ uniform float uStandeeAlphaHigh;
   }
 
   hideCaption() {
+    // S18: clearing the caption also drops any pending fade timer.
+    this.clearCaptionFade();
     this.captionField = null;
     this.hudCaption?.classList.remove("is-on");
   }
@@ -4124,6 +4221,10 @@ uniform float uStandeeAlphaHigh;
     if (this.turn) return false;
     if (this.tour) this.endTour();
     this.clearPeel();
+    // S18: opening the look card tears down captions today → tear down voice +
+    // caption (a one-shot commentary line could be speaking when the card opens).
+    this.stopVoice();
+    this.hideCaption();
     // a card and the flipbook are mutually exclusive — never both on screen.
     if (this.gallery) this.closeGallery();
     // guard: no commentary on this spread → no card (defense in depth; the entry
@@ -4408,11 +4509,37 @@ uniform float uStandeeAlphaHigh;
   // --- Audio ------------------------------------------------------------------
 
   startAudio() {
-    if (this.audio.started) return;
+    // S18-AUTOPLAY-1: this is the single audio-unlock path, called from the
+    // first pointerdown (a user gesture). On a re-entry — including a voice tap
+    // that arrives after audio is already up — resume the context if the browser
+    // suspended it, so voice plays without standing up a competing unlock.
+    if (this.audio.started) {
+      if (this.audio.ctx && this.audio.ctx.state === "suspended") {
+        this.audio.ctx.resume().catch(() => {});
+      }
+      return;
+    }
     this.audio.started = true;
     const Ctx = window.AudioContext || window.webkitAudioContext;
     if (!Ctx) return;
     this.audio.ctx = new Ctx();
+    // Resume immediately: some browsers create the context suspended even on a
+    // gesture. Never throws (the promise rejection is swallowed).
+    if (this.audio.ctx.state === "suspended") {
+      this.audio.ctx.resume().catch(() => {});
+    }
+
+    // S18-BUS-1: a dedicated voice gain node fed into the bus destination, plus
+    // an analyser tap for amplitude-driven lip sync. Built once, reused for
+    // every line, torn down in dispose.
+    this.voiceGain = this.audio.ctx.createGain();
+    this.voiceGain.gain.value = 1;
+    this.voiceAnalyser = this.audio.ctx.createAnalyser();
+    this.voiceAnalyser.fftSize = 256;
+    this.voiceFreqData = new Uint8Array(this.voiceAnalyser.fftSize);
+    // voice → analyser → gain → destination
+    this.voiceGain.connect(this.voiceAnalyser);
+    this.voiceAnalyser.connect(this.audio.ctx.destination);
 
     const loadVariants = async (key, paths) => {
       const buffers = [];
@@ -4442,10 +4569,33 @@ uniform float uStandeeAlphaHigh;
       source.buffer = this.audio.buffers.get("roomTone")[0];
       source.loop = true;
       const gain = this.audio.ctx.createGain();
-      gain.gain.value = 0.05;
+      gain.gain.value = ROOM_TONE_GAIN;
       source.connect(gain).connect(this.audio.ctx.destination);
       source.start();
+      // S18-BUS-1: keep the room-tone gain so playVoice can duck it while a
+      // voice is active and restore it cleanly afterwards.
+      this.roomToneGain = gain;
+      // If a voice is already speaking (a line tapped before room tone loaded),
+      // duck immediately so we don't pop up to full ambience underneath it.
+      if (this.voice) this.duckRoomTone(true);
     });
+  }
+
+  // Smoothly duck (or restore) the looped room tone around active voice. No-op
+  // when room tone never loaded (today's state — the file is absent).
+  duckRoomTone(active) {
+    const gain = this.roomToneGain;
+    const ctx = this.audio.ctx;
+    if (!gain || !ctx) return;
+    const target = active ? ROOM_TONE_GAIN * ROOM_TONE_DUCK : ROOM_TONE_GAIN;
+    const now = ctx.currentTime;
+    try {
+      gain.gain.cancelScheduledValues(now);
+      gain.gain.setValueAtTime(gain.gain.value, now);
+      gain.gain.linearRampToValueAtTime(target, now + 0.18);
+    } catch {
+      gain.gain.value = target;
+    }
   }
 
   playSound(key, { gain = 0.5, rate = 1 } = {}) {
@@ -4458,6 +4608,252 @@ uniform float uStandeeAlphaHigh;
     gainNode.gain.value = gain;
     source.connect(gainNode).connect(this.audio.ctx.destination);
     source.start();
+  }
+
+  // --- Voice (S18) ------------------------------------------------------------
+
+  // Decode (and cache) an AudioBuffer for a voice URL. Returns null when the
+  // context is unavailable or the fetch/decode fails (missing file → silent
+  // degrade, never throws). The smoke harness can pre-seed `voiceUrlCache` with
+  // a synthetic buffer so the real path runs without committing any binary.
+  async decodeVoiceBuffer(url) {
+    if (!url || !this.audio.ctx) return null;
+    if (this.voiceUrlCache.has(url)) return this.voiceUrlCache.get(url);
+    try {
+      const response = await fetch(url);
+      if (!response.ok) {
+        this.voiceUrlCache.set(url, null);
+        return null;
+      }
+      const data = await response.arrayBuffer();
+      const buffer = await this.audio.ctx.decodeAudioData(data);
+      this.voiceUrlCache.set(url, buffer);
+      return buffer;
+    } catch {
+      // missing or undecodable voice stays silent (S18 degrade contract)
+      this.voiceUrlCache.set(url, null);
+      return null;
+    }
+  }
+
+  // Play an optional voice line for a caption. `line` is a commentary line
+  // (intro / item / runwayIntro) carrying an optional resolved `voiceUrl` and an
+  // optional `mouth` mapping. `caption` is the bilingual field to show. `card`
+  // is the expression card to drive lip sync on (or null).
+  //
+  // Contract (S18-BUS-1 / SUBTITLE-1 / LIPSYNC-1):
+  //   - Subtitle shows immediately (it must never wait on async audio).
+  //   - A new line stops the previous voice; rapid repeat taps are debounced.
+  //   - Voice routes through the dedicated voice gain; room tone ducks while
+  //     active and restores when it ends or is interrupted.
+  //   - With no voiceUrl (today's state) the caption behaves exactly as before:
+  //     it is set and left to the existing auto-hide / teardown paths.
+  //   - Lip sync only engages when the line supplies a `mouth` cell mapping AND
+  //     reduced-motion is off; otherwise the card shows its normal expression.
+  playVoice(line, caption, card = null, { dedupKey = null } = {}) {
+    // Always show the caption right away; it owns the bottom band whether or not
+    // a voice ever plays. Callers that want the legacy timing pass through here.
+    if (caption) this.setCaption(caption);
+
+    const url = line && typeof line === "object" ? line.voiceUrl : null;
+
+    // Debounce: a re-tap of the same line while it is (or just was) speaking
+    // must not stack a second voice. New, distinct lines always interrupt.
+    const key = dedupKey ?? url ?? (caption ? JSON.stringify(caption) : null);
+    const now = performance.now();
+    if (
+      key &&
+      key === this.lastVoiceTapKey &&
+      now - this.lastVoiceTapAt < VOICE_RETAP_DEBOUNCE_MS
+    ) {
+      this.lastVoiceTapAt = now;
+      return;
+    }
+    this.lastVoiceTapKey = key;
+    this.lastVoiceTapAt = now;
+
+    // Any pending caption fade from a previous line is now stale.
+    this.clearCaptionFade();
+
+    if (!url || !this.audio.ctx) {
+      // No voice asset (or audio not unlocked yet): subtitle-only path. Stop any
+      // prior voice so a lingering line can't keep ducking the room tone.
+      this.stopVoice();
+      return;
+    }
+
+    // A new line interrupts the previous voice cleanly before starting.
+    this.stopVoice();
+
+    const mouth = this.resolveMouthCells(line, card);
+    const session = { url, card, mouth, stopped: false, source: null };
+    this.voice = session;
+
+    void this.decodeVoiceBuffer(url).then((buffer) => {
+      // Guard: disposed, interrupted by a newer line, or decode failed.
+      if (this.disposed || this.voice !== session || session.stopped) return;
+      if (!buffer || !this.audio.ctx || !this.voiceGain) {
+        // decode failed — fall back to subtitle-only, drop the dead session.
+        if (this.voice === session) this.voice = null;
+        return;
+      }
+      const source = this.audio.ctx.createBufferSource();
+      source.buffer = buffer;
+      const gain = this.audio.ctx.createGain();
+      gain.gain.value = VOICE_GAIN;
+      source.connect(gain).connect(this.voiceGain);
+      session.source = source;
+      session.gain = gain;
+      source.onended = () => {
+        if (this.voice === session && !session.stopped) this.onVoiceEnded(session);
+      };
+      this.duckRoomTone(true);
+      if (mouth) this.activeMouthCard = card;
+      try {
+        source.start();
+      } catch {
+        // a context that refuses to start (rare) falls back to subtitle-only.
+        if (this.voice === session) this.voice = null;
+        this.duckRoomTone(false);
+      }
+    });
+  }
+
+  // Resolve an optional two-cell mouth mapping for lip sync. Supports either a
+  // shorthand string (reserved for future authoring) or an object
+  // `{ closed, open }` of expression-sheet cell indices. Returns null when the
+  // line has no mouth mapping (today's assets), so the card just shows its
+  // normal expression and no mouth flicker is forced.
+  resolveMouthCells(line, card) {
+    if (!card || !line || typeof line !== "object") return null;
+    const mouth = line.mouth;
+    if (!mouth) return null;
+    let closed;
+    let open;
+    if (typeof mouth === "object") {
+      closed = mouth.closed;
+      open = mouth.open;
+    }
+    if (!Number.isInteger(closed) || !Number.isInteger(open)) return null;
+    if (closed < 0 || closed >= EXPRESSION_CELLS) return null;
+    if (open < 0 || open >= EXPRESSION_CELLS) return null;
+    return { closed, open, lastOpen: null };
+  }
+
+  // The active voice finished on its own. Hold the caption briefly, then fade it
+  // (spec: 0.6–1.2 s after the line ends) and restore the room tone.
+  onVoiceEnded(session) {
+    this.voice = null;
+    this.duckRoomTone(false);
+    this.releaseMouth(session?.card);
+    this.scheduleCaptionFade();
+  }
+
+  // Stop the active voice immediately (interruption: new line, page turn, any
+  // state teardown). Restores room tone, releases lip sync, leaves no source or
+  // timer dangling. Idempotent and safe before audio ever started.
+  stopVoice() {
+    const session = this.voice;
+    if (!session) {
+      // even with no active session, make sure ambience is at rest.
+      this.releaseMouth(this.activeMouthCard);
+      return;
+    }
+    session.stopped = true;
+    this.voice = null;
+    if (session.source) {
+      session.source.onended = null;
+      try {
+        session.source.stop();
+      } catch {
+        /* already stopped */
+      }
+      try {
+        session.source.disconnect();
+        session.gain?.disconnect();
+      } catch {
+        /* nodes already torn down */
+      }
+    }
+    this.duckRoomTone(false);
+    this.releaseMouth(session.card);
+  }
+
+  // Reset a card's mouth back to its expression cell after lip sync ends.
+  releaseMouth(card) {
+    this.activeMouthCard = null;
+    if (!card) return;
+    // re-write the card's current expression cell so the mouth is "closed"
+    // (i.e. the normal expression frame), undoing any open-mouth UV.
+    if (typeof card.cell === "number") this.writeExpressionUv(card, card.cell);
+  }
+
+  // --- Caption fade (S18-SUBTITLE-1) ------------------------------------------
+
+  clearCaptionFade() {
+    if (this.captionFadeTimer) {
+      window.clearTimeout(this.captionFadeTimer);
+      this.captionFadeTimer = null;
+    }
+  }
+
+  // Fade the caption out a beat after the voice line ends. A tour line never
+  // self-fades (the tour drives its own caption cadence); a one-shot commentary
+  // line does.
+  scheduleCaptionFade() {
+    this.clearCaptionFade();
+    if (this.tour) return; // tour owns the caption; let updateTour advance it
+    this.captionFadeTimer = window.setTimeout(() => {
+      this.captionFadeTimer = null;
+      if (this.disposed) return;
+      this.hideCaption();
+    }, VOICE_CAPTION_FADE_MS);
+  }
+
+  // --- Lip sync (S18-LIPSYNC-1) -----------------------------------------------
+
+  // Read the live voice amplitude and toggle a two-frame mouth on the active
+  // card. Engages ONLY when:
+  //   - a voice is actually playing through the analyser, AND
+  //   - the line supplied a valid `mouth` cell mapping (resolved on play), AND
+  //   - reduced-motion is off (RM freezes rapid mouth/expression flicker but
+  //     still lets the audio play).
+  // Current expression sheets have no dedicated mouth cells, so production lines
+  // carry no `mouth` mapping → `session.mouth` is null → this is a pure no-op
+  // (the card keeps its normal expression, no forced flicker). Returns the RMS
+  // it sampled (0 when idle) so the smoke harness can assert a non-zero reading.
+  updateLipSync() {
+    const session = this.voice;
+    if (
+      !session ||
+      !session.source ||
+      !this.voiceAnalyser ||
+      !this.voiceFreqData
+    ) {
+      return 0;
+    }
+    // RMS over the time-domain window: a cheap, stable amplitude proxy.
+    this.voiceAnalyser.getByteTimeDomainData(this.voiceFreqData);
+    const data = this.voiceFreqData;
+    let sumSq = 0;
+    for (let i = 0; i < data.length; i += 1) {
+      const v = (data[i] - 128) / 128; // center & normalize to [-1, 1]
+      sumSq += v * v;
+    }
+    const rms = Math.sqrt(sumSq / data.length);
+    this.lastVoiceRms = rms;
+
+    const mouth = session.mouth;
+    const card = session.card;
+    // No mouth mapping (today's assets) or reduced-motion → never flicker the
+    // mouth; the card shows its normal expression frame.
+    if (!mouth || !card || this.reducedMotion) return rms;
+
+    const open = rms >= MOUTH_RMS_THRESHOLD;
+    if (mouth.lastOpen === open) return rms; // no change → no UV churn
+    mouth.lastOpen = open;
+    this.writeExpressionUv(card, open ? mouth.open : mouth.closed);
+    return rms;
   }
 
   // --- Events, sizing -----------------------------------------------------------
@@ -4611,6 +5007,9 @@ uniform float uStandeeAlphaHigh;
     const info = entries[startIndex];
     if (!info) return;
     if (this.tour) this.endTour();
+    // S18: opening 鑑賞 tears down captions today → tear down voice + caption.
+    this.stopVoice();
+    this.hideCaption();
     // BUG-GALLERY-RACE-A (Sprint 6 / Iter 2): cancel any in-flight turn before
     // entering the gallery overlay. animate() short-circuits while gallery is
     // up, so a stale settle would not be advanced — but the very first frame
@@ -4959,6 +5358,7 @@ uniform float uStandeeAlphaHigh;
     this.updateTurn(now, delta);
     this.updatePeel(delta);
     this.updateStandees(delta, elapsed);
+    this.updateLipSync(); // S18: amplitude-driven mouth toggle (degrades to no-op)
     this.updateTour();
     this.syncTourButton();
     this.syncMasthead();
@@ -5110,6 +5510,21 @@ uniform float uStandeeAlphaHigh;
     // the flash window leaves a stale setTimeout in flight (guarded inside,
     // so non-fatal, but a real micro-leak).
     window.clearTimeout(this.shareFlashTimer);
+    // S18: stop any active voice + clear the caption fade timer, then disconnect
+    // the persistent voice nodes (no dangling source, timer, or AudioContext
+    // leak — BUG-DISPOSE-SHARE-TIMER same pattern).
+    this.stopVoice();
+    this.clearCaptionFade();
+    try {
+      this.voiceGain?.disconnect();
+      this.voiceAnalyser?.disconnect();
+    } catch {
+      /* nodes already torn down */
+    }
+    this.voiceGain = null;
+    this.voiceAnalyser = null;
+    this.roomToneGain = null;
+    this.voiceUrlCache.clear();
     this.container.classList.remove("has-pointer", "is-pressing", "in-gallery");
     delete this.container.dataset.cursor;
 

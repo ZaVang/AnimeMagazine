@@ -332,18 +332,33 @@ defer（不阻塞 13b 合并）：
 - 每条音频响度和尾部静音一致，听感不突兀。
 - 仓库不提交原始训练素材、不提交模型权重、不公开真人声优克隆音频。
 
-## Sprint 18 — 语音前端接入与口型同步（P1）
+## Sprint 18 — 语音前端接入与口型同步（P1，已完成）
 
 目标：让语音成为 commentary 的增强层，而不是阻塞功能的依赖。
 
-- [ ] 前端按 `commentary.json` 的 `voice` 字段查找音频；不存在则静默退化为字幕。
-- [ ] WebAudio 总线补齐：语音播放、room tone ducking、打断/切页停止、重复点击去抖。
-- [ ] 口型同步先用 `AnalyserNode` 的 RMS 振幅驱动 mouth-open / mouth-closed 两格；没有 mouth 格时只做字幕，不强行闪动。
+- [x] 前端按 `commentary.json` 的 `voice` 字段查找音频；不存在则静默退化为字幕。
+      （build-time glob `src/voice.js`，缺文件解析为 null，绝不运行期手拼路径 fetch；
+      `intro`/`item`/`runwayIntro` 在 `decorateCommentaryVoice` 一次性解析为 `voiceUrl`。）
+- [x] WebAudio 总线补齐：语音播放、room tone ducking、打断/切页停止、重复点击去抖。
+      （复用既有 `this.audio` 总线，新增 `voiceGain`→`voiceAnalyser`→destination 节点；
+      `playVoice`/`stopVoice` 单一进出口，room tone 在活跃时 duck、结束/打断后还原；
+      新一条语音 `stopVoice` 上一条，同热点重复点击在 280ms 内去抖。）
+- [x] 口型同步先用 `AnalyserNode` 的 RMS 振幅驱动 mouth-open / mouth-closed 两格；没有 mouth 格时只做字幕，不强行闪动。
+      （`updateLipSync` 每帧读 RMS；仅当 item 提供合法 `mouth:{closed,open}` 映射且非
+      reduced-motion 时切换，写瞬时 mouth UV、不动 `card.cell`，且跳过该卡的眨眼循环避免打架。）
 - [ ] 下一轮素材生成 prompt 明确要求 expression sheet 包含闭嘴/张嘴两格，避免用不匹配表情硬凑口型。
-- [ ] 每句字幕与音频起止绑定：语音开始显示字幕，结束后按 0.6-1.2 秒淡出；用户翻页/退出 gallery/look-card 时立即清理。
-- [ ] 声音设置暂不做复杂 UI。第一版只提供“有音频则播放 / 用户首次交互后解锁音频 / 无音频退化”。
+      （遗留：当前表情 sheet 无专用 mouth 格，机制已就绪但**可见口型同步待后续 mouth-cell 素材轮次**，
+      属 Sprint 17 素材产出后的下一轮；本轮在合成 buffer 上验证机制端到端可用。）
+- [x] 每句字幕与音频起止绑定：语音开始显示字幕，结束后按 0.6-1.2 秒淡出；用户翻页/退出 gallery/look-card 时立即清理。
+      （`scheduleCaptionFade` 900ms；`stopVoice`+`hideCaption` 接到 beginTurn/foldStandees/
+      toggleGallery/openLookCard/startShow/finishShow/endTour 全部七状态拆字幕点。）
+- [x] 声音设置暂不做复杂 UI。第一版只提供“有音频则播放 / 用户首次交互后解锁音频 / 无音频退化”。
+      （复用既有 `startAudio` 解锁路径，首手势 resume AudioContext，不新增第二个解锁处理。）
 
-验收：
+验收：`npm run voice:smoke`（真实 Chrome via CDP，合成 AudioBuffer 喂真实语音路径，不提交二进制）
+断言手势解锁、字幕显示后清除、analyser 非零 RMS、有 mouth 映射时口型切换/无则不切、行中途翻页停音停字幕、
+reduced-motion 音频照常但口型冻结。`npm run build`/`commentary:validate`/`asset:audit`（WebGL drift 干净）/
+`narrative:smoke` 全过。详见 `docs/orch/gen_status.md`。
 
 - 浏览器自动播放限制下不会报错；首次点击后可正常出声。
 - 语音播放中翻页、打开鑑賞、打开 look-card、startShow/endShow 都不会残留旧字幕或旧音频。

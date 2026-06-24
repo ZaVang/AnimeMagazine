@@ -10,6 +10,7 @@
     "commentary:validate": "node scripts/commentary-validate.mjs",
     "visual:smoke": "node scripts/visual-smoke.mjs",
     "narrative:smoke": "node scripts/narrative-smoke.mjs",
+    "voice:smoke": "node scripts/voice-smoke.mjs",
     "preview": "vite preview"
   },
   "dependencies": {
